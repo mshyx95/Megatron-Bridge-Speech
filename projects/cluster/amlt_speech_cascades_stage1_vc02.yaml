@@ -1,0 +1,80 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Native Megatron-Bridge EN-ASR stage-1 on Singularity (aiservices-vc02-eu2 / eus2). Streams
+# real English ASR data through the vendored speech-chunk pipeline; trains the encoder + MLP projector
+# with the LLM frozen, cold-starting from base Qwen3.5-4B + the 22L Cascades encoder. Uses the bridge
+# training image (overlay baked); the encoder runs the non-flash t5-bias path. Config mirrors the
+# production reference qwen3-5-4b-en-asr-2605-s1-projmlp EXACTLY: 3-group data mix (in-house+earnings,
+# MLS+GigaSpeech asr-lexical/lowercase, CommonVoice15+VoxPopuli), global batch 64 (16 GPU x micro 1 x
+# grad accum 4), seq 8192, 12000 steps, lr 1e-4 warmup 100 linear-decay-to-0, weight_decay 0.01,
+# adam_eps 1e-7, full activation recompute.
+
+description: yuxuanhu_s2s_qwen bridge 4B EN-ASR s1 enc+proj bs64 12k prod-match (VC02)
+
+env_defaults:
+  NODES: 2
+  SKU: 80G8-H100-IB-NvLink
+  sla_tier: standard
+  TARGET: aiservices-vc02-eu2
+  IMAGE: jing-dev:mega_0812-bridge-v0.5.1-train
+  JOB_NAME: qwen3-5-4b-en-asr-s1-bridge-prodmatch
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-v3-prodmatch
+  TRAIN_ITERS: 12000
+  SAVE_INTERVAL: 2000
+  GLOBAL_BSZ: 64
+  MICRO_BSZ: 1
+  SEQ_LEN: 8192
+  LR_WARMUP: 100
+  LOG_INTERVAL: 10
+
+target:
+  service: sing
+  name: ${TARGET}
+  workspace_name: aiservices-prod-ws02-eus2
+
+environment:
+  registry: speechllmregistry.azurecr.io
+  image: ${IMAGE}
+
+storage:
+  output:
+    storage_account_name: tsstd01eus2
+    container_name: amulet
+  model_blob:
+    storage_account_name: tsstd01eus2
+    container_name: data
+    mount_dir: /modelblob
+  data_blob:
+    storage_account_name: highperf01eus2
+    container_name: data
+    mount_dir: /datablob1
+
+code:
+  local_dir: $CONFIG_DIR/../..
+
+jobs:
+  - name: ${JOB_NAME}
+    sku: ${NODES}x${SKU}
+    sla_tier: ${sla_tier}
+    priority: high
+    mpi: True
+    process_count_per_node: 8
+    command:
+      - nvidia-smi
+      - export OUTPUT=${OUTPUT}
+      - export TRAIN_ITERS=${TRAIN_ITERS}
+      - export SAVE_INTERVAL=${SAVE_INTERVAL}
+      - export GLOBAL_BSZ=${GLOBAL_BSZ}
+      - export MICRO_BSZ=${MICRO_BSZ}
+      - export SEQ_LEN=${SEQ_LEN}
+      - export LR_WARMUP=${LR_WARMUP}
+      - export LOG_INTERVAL=${LOG_INTERVAL}
+      - bash projects/cluster/run_speech_cascades_stage1.sh
+    submit_args:
+      container_args:
+        SHARED_MEMORY_PERCENT: 0.5
+      env:
+        NCCL_DEBUG: "INFO"
+        _AZUREML_SINGULARITY_JOB_UAI: aiservices-training-c02-uai-eus2
+    identity: managed

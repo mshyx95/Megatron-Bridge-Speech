@@ -1,0 +1,28 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+ARG BASE_IMAGE=speechllmregistry.azurecr.io/jing-dev:mega_0812
+FROM ${BASE_IMAGE} AS speech_baseline
+
+ARG UV_VERSION=0.7.2
+
+RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh && \
+    /root/.local/bin/uv pip install \
+        --python /usr/bin/python \
+        --target /opt/bridge-overlay \
+        --link-mode copy \
+        --upgrade \
+        "numpy==1.26.4" \
+        "transformers>=5.8.1,<5.9.0" && \
+    /root/.local/bin/uv pip install \
+        --python /usr/bin/python \
+        --target /opt/bridge-overlay \
+        --link-mode copy \
+        --upgrade \
+        --no-deps \
+        --extra-index-url https://pypi.nvidia.com \
+        "nvidia-modelopt==0.44.0rc5" && \
+    rm -rf /root/.cache/uv
+
+WORKDIR /workspace/Megatron-Bridge
+ENV PYTHONPATH="/opt/bridge-overlay:/workspace/Megatron-Bridge/src:/workspace/Megatron-Bridge/3rdparty/Megatron-LM"

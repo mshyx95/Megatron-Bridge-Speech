@@ -28,6 +28,13 @@ exclude = [
     "docs/source/conf.py",
     "setup.py",
     "3rdparty/**",
+    # Vendored third-party Cascades encoder; kept byte-identical to the baseline for parity.
+    "src/megatron/bridge/models/speech_cascades/encoder/audio_blocks/**",
+    # Vendored streaming speech-chunk data pipeline (MIT); kept verbatim from the baseline.
+    "src/megatron/bridge/data/speech_chunk_streaming/**",
+    # Vendored ASR eval text normalizer (Whisper/OpenAI + baseline extensions); kept verbatim for WER parity.
+    "src/megatron/bridge/models/speech_cascades/eval_metrics/normalizer.py",
+    "src/megatron/bridge/models/speech_cascades/eval_metrics/english_abbreviations.py",
 ]
 
 # Files to completely ignore

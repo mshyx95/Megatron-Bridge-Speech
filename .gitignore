@@ -185,3 +185,6 @@ slurm*.out
 
 # UV package manager
 .uv/
+
+# Amulet local project marker (contains project UUID; do not commit)
+.amltconfig
