@@ -66,6 +66,7 @@ from megatron.bridge.recipes.qwen_omni import *
 from megatron.bridge.recipes.qwen_omni.h100 import *
 from megatron.bridge.recipes.qwen_vl import *
 from megatron.bridge.recipes.qwen_vl.h100 import *
+from megatron.bridge.recipes.speech_cascades import *
 from megatron.bridge.recipes.stepfun import *
 from megatron.bridge.recipes.stepfun.h100 import *
 from megatron.bridge.recipes.wan import *
