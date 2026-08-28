@@ -65,6 +65,7 @@ STEP_FUNCTIONS: dict[str, StepFunctionEntry] = {
     "flux_step": ("megatron.bridge.diffusion.models.flux.flux_step", "FluxForwardStep"),
     "wan_step": ("megatron.bridge.diffusion.models.wan.wan_step", "WanForwardStep"),
     "bagel_step": ("megatron.bridge.models.bagel.bagel_step", "BagelForwardStep"),
+    "speech_cascades_step": ("megatron.bridge.models.speech_cascades.step", "forward_step"),
 }
 
 STEP_MODALITIES = {
@@ -82,6 +83,7 @@ STEP_MODALITIES = {
     "flux_step": "diffusion",
     "wan_step": "diffusion",
     "bagel_step": "omni",
+    "speech_cascades_step": "audio",
 }
 
 TRAIN_FUNCTIONS: dict[str, TrainFunctionEntry] = {

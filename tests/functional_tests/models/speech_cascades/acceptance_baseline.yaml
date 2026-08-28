@@ -1,0 +1,47 @@
+format_version: 1
+seed: 1234
+
+artifacts:
+  config: SPEECH_CASCADES_CONFIG
+  deepspeed_checkpoint: SPEECH_CASCADES_DS_CHECKPOINT
+  tokenizer: SPEECH_CASCADES_TOKENIZER
+  reference_batch: SPEECH_CASCADES_REFERENCE_BATCH
+  reference_outputs: SPEECH_CASCADES_REFERENCE_OUTPUTS
+  reference_audio: SPEECH_CASCADES_REFERENCE_AUDIO
+
+text_model:
+  bf16_cosine_similarity_min: 0.9999
+  tp1_tp2_loss_relative_difference_max: 0.001
+  exact_weight_round_trip: true
+
+data:
+  tensor_keys_exact: true
+  tensor_values_exact: true
+
+encoder:
+  output_shape_exact: true
+  bf16_max_absolute_difference_max: 0.01
+
+full_model:
+  reference_step_zero_loss: 0.207
+  step_zero_loss_relative_difference_max: 0.02
+  fused_embedding_max_absolute_difference_max: 0.01
+
+training:
+  steps: 8
+  loss_exclusive_min: 0.0
+  loss_exclusive_max: 3.0
+  require_finite_loss: true
+  require_finite_gradient_norm: true
+
+inference:
+  samples: 5
+  semantically_correct_min: 5
+  normalized_exact_match_min: 3
+  greedy: true
+  prompt_template: qwen3_audio_instruct
+
+streaming:
+  require_non_empty_batches: true
+  require_chunk_rollover: true
+  require_checkpoint_resume: true
