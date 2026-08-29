@@ -102,6 +102,11 @@ def _ensure_mlflow() -> bool:
             # run_id=None locally starts a fresh run; on AzureML it attaches to the platform run.
             mlflow.start_run(run_id=run_id)
         _MLFLOW_STATE["enabled"] = True
+        logger.info(
+            "MLflow enabled: tracking_uri=%s run_id=%s",
+            mlflow.get_tracking_uri(),
+            run_id,
+        )
     except Exception:
         logger.warning("MLflow attach failed; metrics will not be logged to MLflow.", exc_info=True)
         _MLFLOW_STATE["enabled"] = False

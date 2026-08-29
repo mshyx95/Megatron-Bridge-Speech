@@ -43,6 +43,15 @@ RUN uv pip install --python ${UV_PROJECT_ENVIRONMENT}/bin/python \
         blobfile azure-storage-blob azure-identity backoff unidecode natsort \
         tilelang
 
+# AzureML MLflow tracking-store plugin so obs_logging's mlflow.log_metrics reaches the
+# AzureML-managed run (metrics tab), exactly as the previous jing-dev training image did.
+# Installed with --no-deps: every released azureml-mlflow caps mlflow-skinny<3.14, but the
+# bridge pins mlflow>=3.15.1 (CVE-2025-15031); --no-deps keeps mlflow 3.15.2 intact while
+# still registering the `azureml://` store plugin. Its azureml runtime deps are added explicitly.
+RUN uv pip install --python ${UV_PROJECT_ENVIRONMENT}/bin/python --no-deps azureml-mlflow && \
+    uv pip install --python ${UV_PROJECT_ENVIRONMENT}/bin/python \
+        azureml-core azure-common azure-mgmt-core jsonpickle msrest oauthlib requests-oauthlib
+
 # Empty overlay marker so the cluster wrapper (run_speech_cascades_stage1.sh) skips its
 # runtime pip bootstrap: all of transformers / nvidia-resiliency-ext are already baked in
 # this image, and the bootstrap would otherwise DOWNGRADE transformers and break the stack.
