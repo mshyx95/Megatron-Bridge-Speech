@@ -76,5 +76,8 @@ jobs:
         SHARED_MEMORY_PERCENT: 0.5
       env:
         NCCL_DEBUG: "INFO"
+        # Concurrent blob-chunk downloads (default 4, gated by num_chunks_for_shuffling); raises
+        # steady-state streaming throughput once the pre-filled prefetch buffer drains.
+        BLOBCHUNK_DOWNLOAD_MAX_WORKERS: "16"
         _AZUREML_SINGULARITY_JOB_UAI: aiservices-training-c02-uai-eus2
     identity: managed
