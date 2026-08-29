@@ -14,7 +14,7 @@ batcher_batch_size: 8192
 
 use_storage_api: False
 multi_threaded_download: True
-prefetch_queue_size: 128
+prefetch_queue_size: 512
 conv_template: qwen3_audio_instruct
 padding_mask: True
 streaming_compression: True
@@ -54,7 +54,7 @@ dataset:
     seq_len: ${seq_len}
     batcher_buffer_size: 1000
     batcher_batch_size: ${batcher_batch_size}
-    num_chunks_for_shuffling: 10
+    num_chunks_for_shuffling: 24
     weight: 1.0
     tokenizer: ${tokenizer}
     audio_processor: ${data_audio_processor}
@@ -88,7 +88,7 @@ dataset:
     seq_len: ${seq_len}
     batcher_buffer_size: 1000
     batcher_batch_size: ${batcher_batch_size}
-    num_chunks_for_shuffling: 10
+    num_chunks_for_shuffling: 24
     weight: 1.0
     tokenizer: ${tokenizer}
     audio_processor: ${data_audio_processor}
@@ -120,7 +120,7 @@ dataset:
     seq_len: ${seq_len}
     batcher_buffer_size: 1000
     batcher_batch_size: ${batcher_batch_size}
-    num_chunks_for_shuffling: 10
+    num_chunks_for_shuffling: 24
     weight: 1.0
     tokenizer: ${tokenizer}
     audio_processor: ${data_audio_processor}

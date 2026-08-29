@@ -155,7 +155,7 @@ def speech_cascades_finetune_config(
             force_local=streaming_force_local,
             token_budget_override=streaming_token_budget,
             num_workers=1,
-            prefetch_factor=16,
+            prefetch_factor=64,
             data_sharding=True,
             pin_memory=True,
             persistent_workers=True,
