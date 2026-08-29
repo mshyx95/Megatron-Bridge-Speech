@@ -8,13 +8,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-# Audio hyperparameters and functions used in Whisper
-from whisper.audio import (
-    N_FFT,
-    HOP_LENGTH,
-    pad_or_trim,
-    mel_filters,
-)
+
+# Audio hyperparameters and functions used in Whisper. Imported lazily so the
+# ASR LogFbank data path does not require the heavy `openai-whisper` package;
+# only WhisperProcessor (unused for ASR) actually needs these symbols.
+def _whisper_audio():
+    from whisper.audio import HOP_LENGTH, N_FFT, mel_filters
+
+    return N_FFT, HOP_LENGTH, mel_filters
+
 
 from .utils import bytes2wav
 
@@ -83,6 +85,7 @@ def log_mel_spectrogram(
         # np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
         audio = torch.from_numpy(audio)
 
+    N_FFT, HOP_LENGTH, _ = _whisper_audio()
     window = torch.hann_window(N_FFT)
     stft = torch.stft(audio.float(), N_FFT, HOP_LENGTH, window=window, return_complex=True)
     magnitudes = stft[:, :-1].abs() ** 2
@@ -230,6 +233,7 @@ class WhisperProcessor:
         if self.pad:
             wav = pad(wav)
         if self.filters is None:
+            _, _, mel_filters = _whisper_audio()
             self.filters = mel_filters(torch.device("cpu"), self.feat_dim)
         log_spec = log_mel_spectrogram(wav, self.filters)
 

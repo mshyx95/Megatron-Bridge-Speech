@@ -10,16 +10,16 @@
 # grad accum 4), seq 8192, 12000 steps, lr 1e-4 warmup 100 linear-decay-to-0, weight_decay 0.01,
 # adam_eps 1e-7, full activation recompute.
 
-description: yuxuanhu_s2s_qwen bridge 4B EN-ASR s1 enc+proj bs64 12k prod-match (VC02)
+description: yuxuanhu_s2s_qwen bridge 4B EN-ASR s1 enc+proj bs64 12k prod-match (VC02, torch210/upstream)
 
 env_defaults:
   NODES: 2
   SKU: 80G8-H100-IB-NvLink
   sla_tier: standard
   TARGET: aiservices-vc02-eu2
-  IMAGE: jing-dev:mega_0812-bridge-v0.5.1-train
-  JOB_NAME: qwen3-5-4b-en-asr-s1-bridge-prodmatch
-  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-v3-prodmatch
+  IMAGE: jing-dev:mega_torch210-bridge-speech-train
+  JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-full
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full
   TRAIN_ITERS: 12000
   SAVE_INTERVAL: 2000
   GLOBAL_BSZ: 64
