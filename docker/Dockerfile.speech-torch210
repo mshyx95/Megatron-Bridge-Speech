@@ -1,0 +1,52 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Lean speech-cascades image on a torch-2.10 NGC base (nv25.12), for the upstream-adapted
+# stack. Installs only the bridge core deps plus the `audio` and `te` extras — deliberately
+# skips the MoE/EP/SSM CUDA libraries (DeepEP, HybridEP, mamba-ssm, flash-mla) that the full
+# Dockerfile.ci compiles via `--all-extras` and that a dense Qwen3.5 + audio-encoder model
+# does not need (and which do not compile against this base's NCCL).
+
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.12-py3
+FROM ${BASE_IMAGE} AS speech_torch210
+
+ARG UV_VERSION=0.9.17
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+WORKDIR /opt/Megatron-Bridge
+
+RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh && \
+    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+
+COPY . .
+
+# Reuse the base image's compiled torch/TE/apex/flash-attn via --system-site-packages;
+# install only the core deps + audio + te extras, then the editable MCore submodule.
+# TMS_CUDA_MAJOR is required to build torch-memory-saver (a core dep) against CUDA.
+RUN export TMS_CUDA_MAJOR="$("${CUDA_HOME:-/usr/local/cuda}"/bin/nvcc --version | sed -n 's/.*release \([0-9][0-9]*\).*/\1/p' | head -1)" && \
+    test -n "$TMS_CUDA_MAJOR" && \
+    uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages && \
+    uv sync --locked --no-install-project --extra audio --extra te && \
+    uv pip install --no-deps --reinstall -e 3rdparty/Megatron-LM && \
+    uv cache prune --ci || true
+
+# Speech runtime + eval extras not carried in the bridge project deps.
+#  - soundfile/whisper_normalizer/kaldialign/editdistance: OpenASR eval + feature IO
+#  - blobfile/azure-storage-blob/azure-identity/backoff/unidecode/natsort: vendored
+#    streaming ASR data pipeline (blob_chunk_alm) that reads DataSpec chunks from Azure
+#    blob mounts. (WhisperProcessor's `openai-whisper` dep is imported lazily and unused
+#    on the LogFbank ASR path, so it is intentionally not installed here.)
+#  - tilelang: fla's alternate GDN (gated delta net) backward backend. This base ships
+#    Triton 3.5.1, which fla refuses on Hopper (needs >=3.7.1) for the gated chunk_bwd
+#    kernel; tilelang provides a correct fallback without disturbing torch's pinned Triton.
+RUN uv pip install --python ${UV_PROJECT_ENVIRONMENT}/bin/python \
+        soundfile whisper_normalizer kaldialign editdistance \
+        blobfile azure-storage-blob azure-identity backoff unidecode natsort \
+        tilelang
+
+# Empty overlay marker so the cluster wrapper (run_speech_cascades_stage1.sh) skips its
+# runtime pip bootstrap: all of transformers / nvidia-resiliency-ext are already baked in
+# this image, and the bootstrap would otherwise DOWNGRADE transformers and break the stack.
+RUN mkdir -p /opt/bridge-overlay && touch /opt/bridge-overlay/.done
+
+ENV PATH="/opt/venv/bin:${PATH}"
+ENV PYTHONPATH="/opt/Megatron-Bridge/src:/opt/Megatron-Bridge/3rdparty/Megatron-LM"
