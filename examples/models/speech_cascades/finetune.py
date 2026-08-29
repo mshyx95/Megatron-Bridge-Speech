@@ -58,6 +58,7 @@ def main() -> None:
     from megatron.bridge.models.speech_cascades.obs_logging import install_speech_obs_logging
     from megatron.bridge.models.speech_cascades.step import forward_step
     from megatron.bridge.training.finetune import finetune
+    from megatron.bridge.training.pretrain import pretrain
 
     # Add audio-hours / ppl to MLflow and a rank-0 loss line (built-in log prints on the last rank).
     install_speech_obs_logging()
@@ -115,7 +116,14 @@ def main() -> None:
         lr_warmup_iters=args.lr_warmup_iters,
         log_interval=args.log_interval,
     )
-    finetune(cfg, forward_step_func=forward_step)
+    # With --load-hf-weights the provider already bakes weights into the model at build time,
+    # so no checkpoint load is required; pretrain() still auto-resumes from checkpoint.load if
+    # a prior iteration exists. finetune() (which hard-requires a checkpoint source) is used only
+    # when cold-starting from a Megatron --pretrained-checkpoint.
+    if args.load_hf_weights and not args.pretrained_checkpoint:
+        pretrain(cfg, forward_step_func=forward_step)
+    else:
+        finetune(cfg, forward_step_func=forward_step)
 
 
 if __name__ == "__main__":
