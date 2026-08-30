@@ -13,9 +13,9 @@ env_defaults:
   SKU: 80G8-H100-IB-NvLink
   sla_tier: standard
   TARGET: aiservices-vc02-eu2
-  IMAGE: jing-dev:mega_0812-bridge-v0.5.1-train
-  JOB_NAME: qwen3-5-4b-en-asr-s1-openasr
-  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-v3-prodmatch
+  IMAGE: jing-dev:mega_torch210-bridge-speech-train2
+  JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-openasr
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2
   CHECKPOINT_ITER: 12000
 
 target:
