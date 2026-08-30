@@ -199,6 +199,13 @@ def main() -> None:
     else:
         dataset = load_dataset(args.data_dir, args.subset, split="test")
 
+    # Disable datasets' Audio auto-decode (datasets>=4 routes it through torchcodec, which is not
+    # in this image); _decode_audio reads the raw bytes with soundfile instead.
+    from datasets import Audio
+
+    if "audio" in dataset.features:
+        dataset = dataset.cast_column("audio", Audio(decode=False))
+
     # (normalized reference, raw hypothesis) pairs; scoring runs once on rank 0 for exact parity.
     pairs: list[tuple[str, str]] = []
     for idx in range(dp_rank, len(dataset), dp_world):
