@@ -18,8 +18,8 @@ env_defaults:
   sla_tier: standard
   TARGET: aiservices-vc02-eu2
   IMAGE: jing-dev:mega_torch210-bridge-speech-train2
-  JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-full-v2
-  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2
+  JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-full-v3
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3
   TRAIN_ITERS: 12000
   SAVE_INTERVAL: 2000
   GLOBAL_BSZ: 64
