@@ -21,6 +21,9 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export NCCL_P2P_LEVEL=NVL
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_DATASETS_OFFLINE=1
+# Eager decode: torch.compile/dynamo recompiles per audio length during variable-length generation,
+# which dominated runtime and desynced ranks past the NCCL init timeout on the large subsets.
+export TORCHDYNAMO_DISABLE=1
 
 # editdistance + kaldialign (official Open ASR Leaderboard metric) + regex (vendored normalizer dep)
 python -m pip install --quiet --no-input editdistance kaldialign regex 2>/dev/null || \
@@ -37,17 +40,13 @@ CKPT_DIR=$(printf "%s/run/checkpoints/iter_%07d" "${OUTPUT}" "${CHECKPOINT_ITER}
 RESULT_DIR=${OUTPUT}/eval_output/openasr_iter${CHECKPOINT_ITER}
 mkdir -p "${RESULT_DIR}"
 
-# Standard subsets (no duration filter) + cleaned subsets (min 1s: ami, gigaspeech).
-for subset in librispeech-clean librispeech-other earnings22 spgispeech ami gigaspeech; do
-  MIN_DUR=0.0
-  [[ "$subset" == "ami" || "$subset" == "gigaspeech" ]] && MIN_DUR=1.0
-  python examples/models/speech_cascades/eval_openasr.py \
-    --hf-path "${STAGE1_HF}" \
-    --checkpoint "${CKPT_DIR}" \
-    --data-dir "${DATA_DIR}" \
-    --subset "${subset}" \
-    --tokenizer "${TOKENIZER}" \
-    --min-duration "${MIN_DUR}" \
-    --max-new-tokens "${MAX_NEW_TOKENS}" \
-    --output-json "${RESULT_DIR}/wer_${subset}.json"
-done
+# One process loads the 4.3B model once and evaluates every subset (avoids the per-subset model
+# reload + NCCL re-init that tripped the init timeout). ami/gigaspeech get a 1s floor internally.
+python examples/models/speech_cascades/eval_openasr.py \
+  --hf-path "${STAGE1_HF}" \
+  --checkpoint "${CKPT_DIR}" \
+  --data-dir "${DATA_DIR}" \
+  --subsets librispeech-clean librispeech-other earnings22 spgispeech ami gigaspeech \
+  --tokenizer "${TOKENIZER}" \
+  --max-new-tokens "${MAX_NEW_TOKENS}" \
+  --output-dir "${RESULT_DIR}"
