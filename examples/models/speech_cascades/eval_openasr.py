@@ -29,7 +29,7 @@ Launch under the platform MPI env or ``torch.distributed.run`` (TP=PP=1, world s
     python examples/models/speech_cascades/eval_openasr.py \
         --hf-path /path/stage1_hf --checkpoint /path/checkpoints/iter_0010000 \
         --data-dir /datablob1/users/ruchaofan/Evaluation/OpenASR/esb-datasets-test-only-sorted \
-        --subset librispeech-clean --tokenizer /path/Qwen3.5-4B --max-samples 2000
+        --subsets librispeech-clean librispeech-other --tokenizer /path/Qwen3.5-4B --output-dir /out
 """
 
 import argparse
@@ -155,54 +155,21 @@ def _eos_ids(tokenizer) -> list[int]:
     return ids
 
 
-def main() -> None:
-    """Load the ESB parquet subset, decode each clip, and report corpus WER."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hf-path", required=True, help="Converted stage-1 HF dir (model config).")
-    parser.add_argument("--checkpoint", required=True, help="Megatron dist checkpoint dir (iter_*).")
-    parser.add_argument("--data-dir", required=True, help="ESB esb-datasets-test-only-sorted dir.")
-    parser.add_argument("--subset", required=True, help="librispeech-clean|librispeech-other|earnings22|...")
-    parser.add_argument("--tokenizer", required=True, help="Qwen3.5-4B tokenizer path.")
-    parser.add_argument("--max-samples", type=int, default=100000, help="Cap examples per rank.")
-    parser.add_argument("--min-duration", type=float, default=0.0, help="Skip clips shorter than this (openasr_clean=1.0).")
-    parser.add_argument("--language", default="en")
-    parser.add_argument("--max-new-tokens", type=int, default=128)
-    parser.add_argument("--output-json", default=None)
-    args = parser.parse_args()
+def _eval_one_subset(subset, min_duration, model, processor, tokenizer, eos, language, args, dp_rank, dp_world):
+    """Decode one ESB subset across DP ranks and print/write its corpus WER (scored on rank 0)."""
+    from datasets import Audio, load_dataset
 
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    if not dist.is_initialized():
-        dist.init_process_group(backend="nccl")
-    torch.cuda.set_device(local_rank)
-    ps.initialize_model_parallel(1, 1)
-    model_parallel_cuda_manual_seed(0)
-    dp_rank = ps.get_data_parallel_rank()
-    dp_world = ps.get_data_parallel_world_size()
+    scorer = _build_scorer(language)
 
-    from datasets import load_dataset
-    from transformers import AutoTokenizer
-
-    from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.audio_processors.logfbank_processor import (
-        LogFbankProcessor,
-    )
-
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
-    model = _load_model(args.hf_path, args.checkpoint)
-    processor = LogFbankProcessor()
-    scorer = _build_scorer(args.language)
-    eos = _eos_ids(tokenizer)
-
-    if args.subset == "librispeech-clean":
+    if subset == "librispeech-clean":
         dataset = load_dataset(args.data_dir, "librispeech", split="test.clean")
-    elif args.subset == "librispeech-other":
+    elif subset == "librispeech-other":
         dataset = load_dataset(args.data_dir, "librispeech", split="test.other")
     else:
-        dataset = load_dataset(args.data_dir, args.subset, split="test")
+        dataset = load_dataset(args.data_dir, subset, split="test")
 
     # Disable datasets' Audio auto-decode (datasets>=4 routes it through torchcodec, which is not
     # in this image); _decode_audio reads the raw bytes with soundfile instead.
-    from datasets import Audio
-
     if "audio" in dataset.features:
         dataset = dataset.cast_column("audio", Audio(decode=False))
 
@@ -216,7 +183,7 @@ def main() -> None:
         if not reference:
             continue
         array, fs = _decode_audio(sample["audio"])
-        if args.min_duration and len(array) / fs < args.min_duration:
+        if min_duration and len(array) / fs < min_duration:
             continue
 
         features = processor.extract_features(array, fs)  # T x 80 float32
@@ -225,7 +192,7 @@ def main() -> None:
         if embed_size <= 0:
             continue
 
-        input_id, label = _build_prompt(tokenizer, reference, embed_size, args.subset)
+        input_id, label = _build_prompt(tokenizer, reference, embed_size, subset)
         labels = torch.tensor(label)
         answer_mask = labels != IGNORE_INDEX
         if not bool(answer_mask.any()):
@@ -259,14 +226,59 @@ def main() -> None:
         for ref_norm, raw_hyp in corpus:
             scorer.add_string(ref_norm, raw_hyp)
         wer = scorer.score() / 100.0
-        print(f"[openasr] subset={args.subset} ranks={dp_world} | utts={len(corpus)} | "
+        print(f"[openasr] subset={subset} ranks={dp_world} | utts={len(corpus)} | "
               f"ref_words={scorer.ref_length} | WER={wer:.4f}", flush=True)
-        if args.output_json:
+        if args.output_dir:
             records = [{"reference": r, "hypothesis": h} for r, h in corpus]
-            os.makedirs(os.path.dirname(args.output_json) or ".", exist_ok=True)
-            with open(args.output_json, "w") as f:
-                json.dump({"subset": args.subset, "wer": wer, "utts": len(corpus),
+            os.makedirs(args.output_dir, exist_ok=True)
+            with open(os.path.join(args.output_dir, f"wer_{subset}.json"), "w") as f:
+                json.dump({"subset": subset, "wer": wer, "utts": len(corpus),
                            "ref_words": scorer.ref_length, "records": records}, f)
+
+
+def main() -> None:
+    """Load the model once and decode each ESB subset, reporting corpus WER per subset."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--hf-path", required=True, help="Converted stage-1 HF dir (model config).")
+    parser.add_argument("--checkpoint", required=True, help="Megatron dist checkpoint dir (iter_*).")
+    parser.add_argument("--data-dir", required=True, help="ESB esb-datasets-test-only-sorted dir.")
+    parser.add_argument("--subsets", required=True, nargs="+", help="One or more ESB subsets to eval.")
+    parser.add_argument("--tokenizer", required=True, help="Qwen3.5-4B tokenizer path.")
+    parser.add_argument("--max-samples", type=int, default=100000, help="Cap examples per rank.")
+    parser.add_argument("--min-duration", type=float, default=0.0, help="Global min-clip floor; ami/gigaspeech default to 1.0.")
+    parser.add_argument("--language", default="en")
+    parser.add_argument("--max-new-tokens", type=int, default=128)
+    parser.add_argument("--output-dir", default=None, help="Directory for per-subset wer_<subset>.json.")
+    args = parser.parse_args()
+
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if not dist.is_initialized():
+        # Long timeout: the 4.3B dist-checkpoint load + first-forward compile can exceed the 600s
+        # default before all ranks reach the next collective, which otherwise trips a NCCL timeout.
+        from datetime import timedelta
+
+        dist.init_process_group(backend="nccl", timeout=timedelta(minutes=30))
+    torch.cuda.set_device(local_rank)
+    ps.initialize_model_parallel(1, 1)
+    model_parallel_cuda_manual_seed(0)
+    dp_rank = ps.get_data_parallel_rank()
+    dp_world = ps.get_data_parallel_world_size()
+
+    from transformers import AutoTokenizer
+
+    from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.audio_processors.logfbank_processor import (
+        LogFbankProcessor,
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
+    model = _load_model(args.hf_path, args.checkpoint)
+    processor = LogFbankProcessor()
+    eos = _eos_ids(tokenizer)
+
+    for subset in args.subsets:
+        # Leaderboard uses a 1s floor for the far-field/noisy ami and gigaspeech "clean" subsets.
+        min_dur = args.min_duration or (1.0 if subset in {"ami", "gigaspeech"} else 0.0)
+        _eval_one_subset(subset, min_dur, model, processor, tokenizer, eos, args.language, args, dp_rank, dp_world)
 
 
 if __name__ == "__main__":
