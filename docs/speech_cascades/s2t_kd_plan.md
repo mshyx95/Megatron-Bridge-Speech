@@ -224,11 +224,11 @@ WP0 (done)
 | WP0 | KL distillation loss | DONE |
 | WP-A1 | Teacher text-forward data path | DONE (baee76825) |
 | WP-A2 | Dual-forward KD loss in step | DONE (4cf2bad1d) |
-| WP-A3 | S2 KD recipe + smoke | CODE DONE (df93dd852); M1 smoke BLOCKED — bridge lacks mtp.* mapping (init-from-first params absent from HF ckpt -> strict conversion aborts) |
+| WP-A3 | S2 KD recipe + smoke | CODE DONE (df93dd852). KD-only (MTP off) path validated end-to-end (bridge load + DDP + optimizer OK; blocker was MTP-only). MTP+HF-load smoke DEFERRED — bridge lacks mtp.* handling (init-from-first params absent from HF ckpt). |
 | WP-B1 | S2 KD data spec | DONE (2caccc3c8) |
 | WP-C1 | MTP depth heads on the model (REQUIRED) | DONE (eefa9f759) |
 | WP-C2 | MTP per-depth KL+CE loss (REQUIRED) | DONE (c332d075e) |
-| WP-D1 | BBH judge eval | TODO |
-| WP-D2 | VoiceBench eval | TODO |
-| WP-D3 | BFCL eval | TODO |
-| WP-D4 | Fleurs MT eval | TODO |
+| WP-D1 | BBH judge eval | DONE (f6568a226) |
+| WP-D2 | VoiceBench eval | DONE (6d8876079) |
+| WP-D3 | BFCL eval | DONE (3381846b7) |
+| WP-D4 | Fleurs MT eval | DONE (139f88bdd) |
