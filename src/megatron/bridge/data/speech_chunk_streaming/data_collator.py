@@ -409,9 +409,12 @@ class ALMDataDynamicCollator(LMDataCollator):
         batch: Dict[str, torch.LongTensor],
     ) -> None:
         """Attach the teacher text batch, deriving transcript_ids from ASR responses when absent."""
+        sep_variants = self._separator_id_variants()
         for e in examples:
             if e.get("transcript_ids") is None:
-                e["transcript_ids"] = derive_transcript_ids(e["input_ids"], e["labels"])
+                e["transcript_ids"] = derive_transcript_ids(
+                    e["input_ids"], e["labels"], separator_ids_variants=sep_variants
+                )
         present = ["transcript_ids" in e for e in examples]
         if not any(present):
             return
@@ -428,6 +431,26 @@ class ALMDataDynamicCollator(LMDataCollator):
         batch.update(
             collate_teacher_text_examples(teacher_input_ids, teacher_labels, self.tokenizer.pad_token_id)
         )
+
+    def _separator_id_variants(self) -> List[List[int]]:
+        """Tokenizations of the ``<sep>`` marker (unspaced + space-prefixed) used to split ast-cot.
+
+        For ast-cot the response is ``{transcript}<sep>{translation}``; matching the full ``<sep>`` token
+        subsequence lets the teacher path keep only the source transcript. Cached on first use.
+        """
+        cached = getattr(self, "_sep_variants_cache", None)
+        if cached is not None:
+            return cached
+        variants: List[List[int]] = []
+        plain = self.tokenizer.encode("<sep>", add_special_tokens=False)
+        if plain:
+            variants.append(list(plain))
+            spaced = self.tokenizer.encode("a <sep>", add_special_tokens=False)
+            if len(spaced) >= len(plain) and spaced[-len(plain):] != plain:
+                variants.append(list(spaced[-len(plain):]))
+        self._sep_variants_cache = variants
+        return variants
+
 
 
 def _load_tokenizer(tokenizer: Union[PreTrainedTokenizerBase, str, Dict[str, Any]]) -> PreTrainedTokenizerBase:

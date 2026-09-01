@@ -36,20 +36,31 @@ def derive_transcript_ids(
     labels: torch.Tensor,
     *,
     ignore_index: int = IGNORE_INDEX,
+    separator_ids_variants: Sequence[Sequence[int]] | None = None,
 ) -> list[torch.Tensor]:
-    """Derive the per-audio-segment transcript token ids from an ASR example.
+    """Derive the per-audio-segment transcript token ids from an ASR-style example.
 
-    For every ASR group the assistant response *is* the reference transcript, so the supervised
+    For the ASR / nothink (``audio-response``) / continuation (``audio-continuation``) formatters the
+    supervised assistant response *is* the reference transcript, so the supervised
     (``labels != ignore_index``) token run that follows each audio placeholder span holds exactly the
     transcript tokens the teacher path needs to substitute for that span. Each contiguous run of the
     placeholder id ``-(k + 1)`` marks audio segment ``k``; the first supervised label run after it is
     taken as segment ``k``'s transcript, ordered so the returned list indexes by segment ``k``.
+
+    For the ``ast-cot`` (speech-translation chain-of-thought) formatter the response is
+    ``{transcript}<sep>{translation}``; passing the tokenizations of ``<sep>`` via
+    ``separator_ids_variants`` truncates each response run at the first ``<sep>`` occurrence so only the
+    source transcript (the part before ``<sep>``) is used as the teacher transcript. Matching the full
+    ``<sep>`` token subsequence is safe because natural transcripts never contain the literal ``<sep>``.
 
     Args:
         input_ids: Student token ids, shape ``(L,)`` or ``(1, L)``. Audio segments are negative ids.
         labels: Student (unshifted) labels, same shape as ``input_ids``; the answer token id at each
             response position and ``ignore_index`` elsewhere.
         ignore_index: Label value marking ignored (non-response) positions.
+        separator_ids_variants: Optional tokenizations of the ``<sep>`` marker (e.g. with and without a
+            leading space). When a response run contains one, the transcript is truncated to the tokens
+            before it (used by ``ast-cot``); otherwise the whole run is the transcript.
 
     Returns:
         A list of 1D ``long`` tensors, one per audio segment ``k`` in order, on the input device.
@@ -60,6 +71,8 @@ def derive_transcript_ids(
     ids_list = input_ids.reshape(-1).tolist()
     labs_list = labels.reshape(-1).tolist()
     length = len(ids_list)
+
+    variants = [list(v) for v in separator_ids_variants if v] if separator_ids_variants else []
 
     transcripts_by_segment: dict[int, list[int]] = {}
     max_segment = -1
@@ -81,7 +94,7 @@ def derive_transcript_ids(
             while run_end < length and ids_list[run_end] >= 0 and labs_list[run_end] != ignore_index:
                 span.append(labs_list[run_end])
                 run_end += 1
-            transcripts_by_segment.setdefault(pending_segment, span)
+            transcripts_by_segment.setdefault(pending_segment, _truncate_before_separator(span, variants))
             pending_segment = None
             position = run_end
         else:
@@ -95,6 +108,18 @@ def derive_transcript_ids(
             raise ValueError(f"could not derive a transcript for audio segment {segment}")
         transcripts.append(torch.tensor(span, dtype=torch.long, device=device))
     return transcripts
+
+
+def _truncate_before_separator(span: list[int], variants: list[list[int]]) -> list[int]:
+    """Return the response prefix before the earliest ``<sep>`` variant, or the whole span."""
+    cut = len(span)
+    for sep in variants:
+        n = len(sep)
+        for start in range(0, len(span) - n + 1):
+            if span[start : start + n] == sep:
+                cut = min(cut, start)
+                break
+    return span[:cut]
 
 
 def build_teacher_text_example(
