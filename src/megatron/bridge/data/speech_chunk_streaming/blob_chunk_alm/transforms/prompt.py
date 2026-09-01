@@ -3,6 +3,10 @@
 
 """Prompt for different tasks."""
 
+AUDIO_CONTINUATION_PROMPTS = [
+    "Continue the following text using less than 50 words:",
+]
+
 ASR_PROMPTS = [
     # from wavllm
     "Transcribe the audio clip into text.",
