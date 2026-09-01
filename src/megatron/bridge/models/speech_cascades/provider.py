@@ -45,6 +45,14 @@ class SpeechCascadesModelProvider(GPTModelProvider):
     freeze_language_model: bool = False
     freeze_audio_model: bool = False
 
+    # --- Multi-token prediction (MTP) depth heads ---
+    # All default off/0 so the ASR path is byte-identical when MTP is disabled.
+    mtp_num_hidden_layers: int = 0
+    mtp_loss_weight: float = 0.0
+    mtp_loss_depth_weights: list[float] | None = None
+    mtp_distillation_weight: float = 0.0
+    mtp_init_extra_layers_from_first: bool = False
+
     # --- Qwen3.5 language-model defaults (GDN hybrid) ---
     normalization: str = "RMSNorm"
     gated_linear_unit: bool = True

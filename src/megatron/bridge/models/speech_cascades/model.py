@@ -26,6 +26,7 @@ from megatron.core.transformer import MegatronModule
 
 from megatron.bridge.models.gpt_provider import GPTModelProvider
 from megatron.bridge.models.speech_cascades.audio_embedding import CascadesAudioEmbedding
+from megatron.bridge.models.speech_cascades.mtp import SpeechCascadesMTP
 
 
 class SpeechCascadesModel(MegatronModule):
@@ -65,6 +66,50 @@ class SpeechCascadesModel(MegatronModule):
             )
 
         self.share_embeddings_and_output_weights = self.language_model.share_embeddings_and_output_weights
+
+        # Optional multi-token-prediction depth heads (WP-C1). Off by default: when
+        # ``mtp_num_hidden_layers == 0`` the model has no ``mtp`` module and the ASR forward path
+        # below is byte-identical to the pre-MTP model.
+        self.mtp: SpeechCascadesMTP | None = None
+        # Per-depth hidden states from the most recent MTP forward, exposed for the per-depth loss
+        # (WP-C2). ``None`` whenever MTP is disabled or inactive (e.g. no labels).
+        self.mtp_hidden_states: list[torch.Tensor] | None = None
+        mtp_num_depth_layers = int(getattr(config, "mtp_num_hidden_layers", 0) or 0)
+        if mtp_num_depth_layers > 0:
+            self.mtp = self._build_mtp(config, mtp_num_depth_layers, vp_stage)
+
+    def _build_mtp(
+        self, config: GPTModelProvider, num_depth_layers: int, vp_stage: int | None
+    ) -> SpeechCascadesMTP:
+        """Build the MTP depth heads from the language-model decoder's first-layer spec."""
+        from megatron.core.transformer.spec_utils import build_module
+
+        decoder = self.language_model.decoder
+        layer_spec = decoder.submodules.layer_specs[0]
+        pg_collection = getattr(decoder, "pg_collection", None)
+
+        def _layer_builder():
+            return build_module(
+                layer_spec,
+                config=config,
+                layer_number=1,
+                pg_collection=pg_collection,
+                vp_stage=vp_stage,
+            )
+
+        # init-from-first: every depth block starts as a copy of the first decoder layer.
+        source_state_dict = None
+        if getattr(config, "mtp_init_extra_layers_from_first", False):
+            source_state_dict = decoder.layers[0].state_dict()
+
+        return SpeechCascadesMTP(
+            hidden_size=config.hidden_size,
+            num_depth_layers=num_depth_layers,
+            layer_builder=_layer_builder,
+            source_state_dict=source_state_dict,
+            norm_eps=config.layernorm_epsilon,
+            zero_centered_gamma=getattr(config, "layernorm_zero_centered_gamma", False),
+        )
 
     def shared_embedding_or_output_weight(self):
         """Surface the language model word embeddings for gradient all-reduce."""
@@ -141,12 +186,73 @@ class SpeechCascadesModel(MegatronModule):
             sequence = torch.arange(input_ids.shape[1], device=input_ids.device)
             position_ids = sequence.unsqueeze(0).expand(input_ids.shape[0], -1)
 
-        return self.language_model(
+        # ASR path (MTP disabled or inactive): byte-identical to the pre-MTP model.
+        if self.mtp is None or labels is None:
+            self.mtp_hidden_states = None
+            return self.language_model(
+                input_ids=None,
+                position_ids=position_ids,
+                attention_mask=attention_mask,
+                decoder_input=decoder_input,
+                labels=labels,
+                loss_mask=loss_mask,
+                **kwargs,
+            )
+
+        # MTP path: capture the main decoder hidden states, then run the depth heads. The capture
+        # hook reproduces the standard output-layer + loss so the main output is unchanged.
+        holder: dict[str, torch.Tensor] = {}
+        output = self.language_model(
             input_ids=None,
             position_ids=position_ids,
             attention_mask=attention_mask,
             decoder_input=decoder_input,
             labels=labels,
             loss_mask=loss_mask,
+            output_processor=self._capture_hidden_states(holder),
             **kwargs,
         )
+        full_hidden_states = holder.get("hidden_states")
+        if full_hidden_states is not None:
+            self.mtp_hidden_states = self.mtp(
+                full_hidden_states,
+                decoder_input,
+                rotary_pos_emb_fn=self._mtp_rotary_fn(),
+                attention_mask=None,
+            )
+        else:
+            self.mtp_hidden_states = None
+        return output
+
+    def _mtp_rotary_fn(self):
+        """Return a ``seq_len -> rotary_pos_emb`` callable from the LM's rotary embedding, or None."""
+        rotary_pos_emb = getattr(self.language_model, "rotary_pos_emb", None)
+        if rotary_pos_emb is None:
+            return None
+        return lambda seq_len: rotary_pos_emb(seq_len)
+
+    @staticmethod
+    def _capture_hidden_states(holder: dict[str, torch.Tensor]):
+        """Output-processor hook: stash the decoder hidden states and reproduce the standard output."""
+
+        def _process(
+            *,
+            hidden_states,
+            output_layer,
+            output_weight,
+            labels,
+            runtime_gather_output,
+            compute_language_model_loss,
+            scale_logits,
+            **_,
+        ):
+            holder["hidden_states"] = hidden_states
+            logits, _ = output_layer(
+                hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output
+            )
+            logits = scale_logits(logits)
+            if labels is None:
+                return logits.transpose(0, 1).contiguous()
+            return compute_language_model_loss(labels, logits)
+
+        return _process
