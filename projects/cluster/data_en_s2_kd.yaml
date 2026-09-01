@@ -5,23 +5,27 @@
 # SpeechChunkStreamingDatasetProvider / build_speech_chunk_dataset. Mirrors the reference phyagi S2
 # mixture that the MTP4-KD run trains on
 # (cascade_encoder_stage2/qwen3-5-4b-s2-projonly-lfg3-p1-mtp4-4k.yaml -> the base config the
-# `-proj20m-p1-mtp4-kd-{warm500,full4000}` overrides inherit from). Three matched (1:1:1) categories,
-# all built from the SAME five ASR spec-groups (in-house + earnings, multilingual in-house,
-# MLS/GigaSpeech, CommonVoice/VoxPopuli/FLEURS, OpenASR AMI/earnings), differing only by prompt
-# formatter:
+# `-proj20m-p1-mtp4-kd-{warm500,full4000}` overrides inherit from). Four categories matching the
+# reference base group counts (ASR 5 : ast-cot 2 : nothink 5 : continuation 5). The ASR / nothink /
+# continuation categories are all built from the SAME five ASR spec-groups (in-house + earnings,
+# multilingual in-house, MLS/GigaSpeech, CommonVoice/VoxPopuli/FLEURS, OpenASR AMI/earnings),
+# differing only by prompt formatter:
 #   - ASR            (prompt_formatter asr / asr-lexical): user asks to transcribe, response = transcript.
 #   - nothink        (prompt_formatter audio-response):    user turn is bare `<audio>`, response = transcript.
 #   - continuation   (prompt_formatter audio-continuation): user turn is `{prompt}\n\n<audio>`, response = transcript.
-# The reference base additionally carries speech-translation (ast-cot, 2 groups); those are omitted
-# here (the user requested the ASR / nothink / continuation three categories).
+#   - speech-transl. (prompt_formatter ast-cot, 2 groups): response = `{transcript}<sep>{translation}`;
+#                    the teacher keeps only the pre-`<sep>` source transcript.
 #
-# KD teacher alignment: for ALL three categories the supervised assistant response IS the reference
-# transcript (these are ASR-sourced specs; the plain audio-response / audio-continuation formatters do
+# KD teacher alignment: for ASR / nothink / continuation the supervised assistant response IS the
+# reference transcript (ASR-sourced specs; the plain audio-response / audio-continuation formatters do
 # not carry a separate answer), so the response label tokens are exactly the transcript tokens the
-# teacher path needs to replace each audio placeholder span. The teacher build reads a per-example
-# `transcript_ids` field (Sequence[torch.Tensor], one 1D long tensor per audio segment k, ordered to
-# match the `-(k+1)` placeholder runs in `input_ids`); when it is absent the dynamic collator derives
-# it from the response labels (`derive_transcript_ids`). The collator emits `teacher_input_ids` /
+# teacher path needs to replace each audio placeholder span. For ast-cot the response is
+# `{transcript}<sep>{translation}`, so the collator passes the tokenized `<sep>` marker to
+# `derive_transcript_ids`, which truncates each response run at the first `<sep>` to keep only the
+# source transcript. The teacher build reads a per-example `transcript_ids` field
+# (Sequence[torch.Tensor], one 1D long tensor per audio segment k, ordered to match the `-(k+1)`
+# placeholder runs in `input_ids`); when it is absent the dynamic collator derives it from the response
+# labels (`derive_transcript_ids`). The collator emits `teacher_input_ids` /
 # `teacher_labels` / `teacher_attention_mask` when `knowledge_distillation` is set below.
 #
 # Reads the mounted /datablob1 (use_storage_api: False; pass --streaming-force-local for local runs).
@@ -670,6 +674,74 @@ dataset:
     audio_processor: ${data_audio_processor}
     pad_to_context_length: False
     dataset_provider: blob_chunk_alm
+
+  # ===== speech-translation (ast-cot): response is {transcript}<sep>{translation}; teacher keeps the pre-<sep> transcript =====
+  # speech-translation (ast-cot): in-house x2en CoT; response = {transcript}<sep>{translation}, teacher uses the pre-<sep> transcript.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/x2en_prod_st_cot_1k.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: ast-cot
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # speech-translation (ast-cot): in-house x2en CoT; response = {transcript}<sep>{translation}, teacher uses the pre-<sep> transcript.
+  # speech-translation (ast-cot): CoVoST2 en2x + x2en CoT.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/covost2_en2x_train_cot.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/covost2_x2en_train_cot.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: ast-cot
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # speech-translation (ast-cot): CoVoST2 en2x + x2en CoT.
 
 dataset_concat: random_iterable
 dataset_provider: blob_chunk_alm
