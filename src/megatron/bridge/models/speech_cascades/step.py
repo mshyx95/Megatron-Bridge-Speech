@@ -28,14 +28,21 @@ from typing import Any, Iterable
 import torch
 from megatron.core.transformer import MegatronModule
 
+from megatron.bridge.models.speech_cascades.distillation import chunked_kl_divergence, distillation_loss
 from megatron.bridge.models.speech_cascades.obs_logging import add_audio_seconds
-from megatron.bridge.training.losses import create_masked_next_token_loss_function
+from megatron.bridge.training.losses import create_masked_next_token_loss_function, masked_next_token_loss
 from megatron.bridge.training.state import GlobalState
 
 
 logger = logging.getLogger(__name__)
 
 IGNORE_INDEX = -100
+
+# Defensive defaults for the KD hyperparameters until WP-C1's provider and WP-A3's recipe wire them
+# onto the model config; these mirror the reference stage-2 S2T recipe.
+_DEFAULT_DISTILLATION_WEIGHT = 0.75
+_DEFAULT_DISTILLATION_TEMPERATURE = 2.0
+_DEFAULT_DISTILLATION_KL_CHUNK_SIZE = 128
 
 
 def _to_cuda(value: torch.Tensor | None) -> torch.Tensor | None:
@@ -103,6 +110,12 @@ def forward_step(
 ) -> tuple[torch.Tensor, partial]:
     """Forward training step for :class:`SpeechCascadesModel`.
 
+    When the batch carries KD teacher tensors (``teacher_input_ids``), this runs the dual-forward
+    knowledge-distillation path (WP-A2): the student speech forward exposes the response-token hidden
+    states, a text-only teacher forward of the frozen LM produces the aligned teacher hidden states,
+    and the loss mixes a chunked KL with the existing masked next-token CE. Without teacher tensors
+    the ASR path is byte-identical to before.
+
     Args:
         state: Global run state (timers, rerun config).
         data_iterator: Iterator yielding ALM collator batches.
@@ -110,7 +123,7 @@ def forward_step(
         return_schedule_plan: Unused; kept for forward-step signature compatibility.
 
     Returns:
-        Tuple of the per-token loss tensor and the masked-mean loss function.
+        Tuple of the per-token loss tensor and the loss function (masked CE, or the KD mix).
     """
     timers = state.timers
 
@@ -119,6 +132,7 @@ def forward_step(
     timers("batch-generator").stop()
 
     loss_mask = batch.pop("loss_mask")
+    kd_enabled = batch.get("teacher_input_ids") is not None
 
     forward_args = {
         "input_ids": batch["input_ids"],
@@ -130,11 +144,121 @@ def forward_step(
         forward_args["audio_input_features"] = batch["audio_input_features"]
         forward_args["audio_attention_mask"] = batch["audio_attention_mask"]
         forward_args["audio_embed_sizes"] = batch["audio_embed_sizes"]
+    if kd_enabled:
+        # Ask the model to expose the student response hidden states for the KD forward.
+        forward_args["return_hidden_states"] = True
 
     output_tensor = model(**forward_args)
 
     check_for_nan_in_loss = state.cfg.rerun_state_machine.check_for_nan_in_loss
     check_for_spiky_loss = state.cfg.rerun_state_machine.check_for_spiky_loss
-    loss_function = create_masked_next_token_loss_function(loss_mask, check_for_nan_in_loss, check_for_spiky_loss)
 
+    if not kd_enabled:
+        loss_function = create_masked_next_token_loss_function(loss_mask, check_for_nan_in_loss, check_for_spiky_loss)
+        return output_tensor, loss_function
+
+    inner = _unwrap_model(model)
+    kl_loss = _compute_kd_kl(inner, batch, loss_mask)
+    distillation_weight = float(
+        getattr(inner.config, "distillation_weight", _DEFAULT_DISTILLATION_WEIGHT)
+    )
+    loss_function = partial(
+        _kd_loss_function,
+        loss_mask,
+        kl_loss,
+        distillation_weight,
+        check_for_nan_in_loss,
+        check_for_spiky_loss,
+    )
     return output_tensor, loss_function
+
+
+def _unwrap_model(model: MegatronModule) -> MegatronModule:
+    """Unwrap DDP/Float16 wrappers to reach the inner :class:`SpeechCascadesModel`."""
+    inner = model
+    while not hasattr(inner, "text_forward_hidden_states") and hasattr(inner, "module"):
+        inner = inner.module
+    return inner
+
+
+def _make_logits_fn(inner: MegatronModule):
+    """Build a ``[N, H] -> [N, V]`` logits function from the frozen tied output head."""
+    gpt = inner.language_model
+    weight = gpt.shared_embedding_or_output_weight()
+
+    def logits_fn(hidden_states: torch.Tensor) -> torch.Tensor:
+        # The output layer expects sbhd ``[S, B, H]``; treat the N response tokens as a length-N,
+        # batch-1 sequence, then drop the batch axis.
+        logits, _ = gpt.output_layer(hidden_states.unsqueeze(1), weight=weight)
+        return logits.squeeze(1)
+
+    return logits_fn
+
+
+def _compute_kd_kl(inner: MegatronModule, batch: dict[str, Any], loss_mask: torch.Tensor) -> torch.Tensor:
+    """Run the teacher text forward and compute the chunked KL over aligned response tokens.
+
+    The student response hidden states come from the just-completed speech forward
+    (``inner.captured_hidden_states``); the teacher hidden states come from a text-only forward of
+    the frozen LM under ``torch.no_grad()``. A hard assert requires the student and teacher response
+    label ids to match (token alignment).
+    """
+    student_hidden = inner.captured_hidden_states  # [B, S, H], carries the student graph
+    if student_hidden is None:
+        raise RuntimeError(
+            "Knowledge distillation is enabled but the student hidden states were not captured; "
+            "the model forward must be called with return_hidden_states=True"
+        )
+
+    # Student response selection mirrors the reference: shifted labels, response tokens only.
+    student_label_mask = loss_mask[:, :-1].bool()  # [B, S-1]
+    student_response_hidden = student_hidden[:, :-1, :][student_label_mask]  # [N, H]
+    student_response_labels = batch["labels"][:, :-1][student_label_mask]  # [N]
+
+    with torch.no_grad():
+        teacher_hidden = inner.text_forward_hidden_states(batch["teacher_input_ids"], attention_mask=None)
+    teacher_shift_labels = batch["teacher_labels"][:, 1:]  # [B, T-1]
+    teacher_label_mask = teacher_shift_labels != IGNORE_INDEX
+    teacher_response_hidden = teacher_hidden[:, :-1, :][teacher_label_mask]  # [N, H]
+    teacher_response_labels = teacher_shift_labels[teacher_label_mask]  # [N]
+
+    if not torch.equal(student_response_labels, teacher_response_labels):
+        raise ValueError("KD student and teacher response labels are not token-aligned")
+
+    config = inner.config
+    temperature = float(getattr(config, "distillation_temperature", _DEFAULT_DISTILLATION_TEMPERATURE))
+    chunk_size = int(getattr(config, "distillation_kl_chunk_size", _DEFAULT_DISTILLATION_KL_CHUNK_SIZE))
+    return chunked_kl_divergence(
+        student_response_hidden,
+        teacher_response_hidden.to(student_response_hidden.dtype),
+        _make_logits_fn(inner),
+        temperature,
+        chunk_size,
+    )
+
+
+def _kd_loss_function(
+    loss_mask: torch.Tensor,
+    kl_loss: torch.Tensor,
+    distillation_weight: float,
+    check_for_nan_in_loss: bool,
+    check_for_spiky_loss: bool,
+    output_tensor: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+    """Mix the precomputed KD KL with the existing masked next-token CE.
+
+    ``masked_next_token_loss`` returns a token-summed CE and the pipeline schedule later divides the
+    returned scalar by ``num_tokens``. The KL from ``chunked_kl_divergence`` is a per-token mean, so
+    it is scaled by ``num_tokens`` before mixing to keep the effective loss
+    ``w * KL_mean + (1 - w) * CE_mean`` after normalization (matching the reference).
+
+    WP-C2 extends the total loss here: after ``total_loss`` is formed, add
+    ``total_loss = total_loss + mtp_loss_weight * mtp_loss`` (the per-depth MTP KL+CE built from
+    ``model.mtp_hidden_states``), likewise scaled by ``num_tokens``.
+    """
+    ce_loss, num_tokens, reporting = masked_next_token_loss(
+        loss_mask, output_tensor, check_for_nan_in_loss, check_for_spiky_loss
+    )
+    scaled_kl = kl_loss * num_tokens.clamp(min=1)
+    total_loss = distillation_loss(scaled_kl, ce_loss, distillation_weight)
+    return total_loss, num_tokens, reporting

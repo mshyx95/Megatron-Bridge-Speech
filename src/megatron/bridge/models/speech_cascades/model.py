@@ -74,6 +74,9 @@ class SpeechCascadesModel(MegatronModule):
         # Per-depth hidden states from the most recent MTP forward, exposed for the per-depth loss
         # (WP-C2). ``None`` whenever MTP is disabled or inactive (e.g. no labels).
         self.mtp_hidden_states: list[torch.Tensor] | None = None
+        # Main decoder hidden states (bshd ``[B, S, H]``) from the most recent forward, exposed for
+        # the KD response-token selection (WP-A2). ``None`` unless the caller requested capture.
+        self.captured_hidden_states: torch.Tensor | None = None
         mtp_num_depth_layers = int(getattr(config, "mtp_num_hidden_layers", 0) or 0)
         if mtp_num_depth_layers > 0:
             self.mtp = self._build_mtp(config, mtp_num_depth_layers, vp_stage)
@@ -168,6 +171,7 @@ class SpeechCascadesModel(MegatronModule):
         attention_mask: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
         loss_mask: torch.Tensor | None = None,
+        return_hidden_states: bool = False,
         **kwargs,
     ) -> torch.Tensor:
         decoder_input = None
@@ -186,9 +190,14 @@ class SpeechCascadesModel(MegatronModule):
             sequence = torch.arange(input_ids.shape[1], device=input_ids.device)
             position_ids = sequence.unsqueeze(0).expand(input_ids.shape[0], -1)
 
-        # ASR path (MTP disabled or inactive): byte-identical to the pre-MTP model.
-        if self.mtp is None or labels is None:
-            self.mtp_hidden_states = None
+        self.captured_hidden_states = None
+        self.mtp_hidden_states = None
+
+        # ASR path (no hidden-state capture requested, MTP disabled, or no labels): byte-identical
+        # to the pre-KD/pre-MTP model. Only KD (``return_hidden_states``) or MTP takes the capture
+        # branch below.
+        capture_hidden = return_hidden_states or self.mtp is not None
+        if not capture_hidden or labels is None:
             return self.language_model(
                 input_ids=None,
                 position_ids=position_ids,
@@ -199,8 +208,9 @@ class SpeechCascadesModel(MegatronModule):
                 **kwargs,
             )
 
-        # MTP path: capture the main decoder hidden states, then run the depth heads. The capture
-        # hook reproduces the standard output-layer + loss so the main output is unchanged.
+        # Capture path: stash the main decoder hidden states (for the KD response selection and/or
+        # the MTP depth heads) while the capture hook reproduces the standard output-layer loss so
+        # the returned CE output is unchanged.
         holder: dict[str, torch.Tensor] = {}
         output = self.language_model(
             input_ids=None,
@@ -214,15 +224,53 @@ class SpeechCascadesModel(MegatronModule):
         )
         full_hidden_states = holder.get("hidden_states")
         if full_hidden_states is not None:
-            self.mtp_hidden_states = self.mtp(
-                full_hidden_states,
-                decoder_input,
-                rotary_pos_emb_fn=self._mtp_rotary_fn(),
-                attention_mask=None,
-            )
-        else:
-            self.mtp_hidden_states = None
+            # Expose the main hidden states in bshd for the KD response selection in step.py.
+            self.captured_hidden_states = full_hidden_states.transpose(0, 1).contiguous()
+            if self.mtp is not None:
+                self.mtp_hidden_states = self.mtp(
+                    full_hidden_states,
+                    decoder_input,
+                    rotary_pos_emb_fn=self._mtp_rotary_fn(),
+                    attention_mask=None,
+                )
         return output
+
+    def text_forward_hidden_states(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Text-only teacher forward: run the frozen language model with NO audio.
+
+        Runs the language model on ``input_ids`` (audio spans already replaced by their aligned
+        transcript tokens by the KD collator) and returns the decoder hidden states as bshd
+        ``[B, S, H]``. Intended to be called under ``torch.no_grad()`` at the KD call site; it builds
+        no audio graph and only materializes hidden states (no full-vocab logits). Right-padded
+        teacher sequences are handled by the causal attention, matching the student path.
+
+        Args:
+            input_ids: ``[B, S]`` teacher text token ids (no negative audio placeholders).
+            attention_mask: Optional attention mask forwarded to the language model. The training
+                pipeline passes ``None`` (causal), which is exact for right-padded sequences.
+
+        Returns:
+            Decoder hidden states ``[B, S, H]`` (bshd).
+        """
+        decoder_input = None
+        if self.pre_process:
+            decoder_input = self.language_model.embedding(input_ids=input_ids.clamp_min(0), position_ids=None)
+
+        sequence = torch.arange(input_ids.shape[1], device=input_ids.device)
+        position_ids = sequence.unsqueeze(0).expand(input_ids.shape[0], -1)
+
+        holder: dict[str, torch.Tensor] = {}
+        self.language_model(
+            input_ids=None,
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+            decoder_input=decoder_input,
+            labels=None,
+            output_processor=self._capture_hidden_states_only(holder),
+        )
+        return holder["hidden_states"].transpose(0, 1).contiguous()
 
     def _mtp_rotary_fn(self):
         """Return a ``seq_len -> rotary_pos_emb`` callable from the LM's rotary embedding, or None."""
@@ -254,5 +302,19 @@ class SpeechCascadesModel(MegatronModule):
             if labels is None:
                 return logits.transpose(0, 1).contiguous()
             return compute_language_model_loss(labels, logits)
+
+        return _process
+
+    @staticmethod
+    def _capture_hidden_states_only(holder: dict[str, torch.Tensor]):
+        """Output-processor hook that captures decoder hidden states without materializing logits.
+
+        Used by the text-only teacher forward, which only needs the hidden states; skipping the
+        output-layer projection avoids a full ``[seq, vocab]`` logits tensor.
+        """
+
+        def _process(*, hidden_states, **_):
+            holder["hidden_states"] = hidden_states
+            return hidden_states
 
         return _process
