@@ -33,33 +33,58 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export NCCL_P2P_LEVEL=NVL
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# Stage-1 artifacts used to initialize stage-2: the HF directory supplies the model architecture
-# (LM + encoder + projector); the trained Megatron checkpoint supplies the stage-1 weights. The MTP
-# depth heads are added by the provider and initialized from the LM's first decoder layer.
-S1_HF=${S1_HF:-/modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/stage1_hf}
-S1_CKPT=${S1_CKPT:-/modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/run/checkpoints/iter_0012000}
+# Model source for stage-2. Two modes:
+#   (a) from scratch  — build the HF dir from base Qwen3.5 + the cascades encoder (random projector),
+#       leave S1_CKPT empty, and cold-start the warm phase via --load-hf-weights.
+#   (b) from stage-1  — point MODEL_HF at a trained stage1_hf and S1_CKPT at its Megatron checkpoint.
+BASE_HF=${BASE_HF:-/datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B}
+ENC_CKPT=${ENC_CKPT:-/datablob1/users/ruchaofan/cascades_speech_encoder/checkpoint_22L/model.checkpoint}
 OUTPUT=${OUTPUT:-/modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-mtp4-torch210}
+MODEL_HF=${MODEL_HF:-${OUTPUT}/stage1_hf}
+S1_CKPT=${S1_CKPT:-}
 # Reusable configs: TRAIN_CONFIG holds the model/training hyperparameters, DATA_CONFIG the data mixture.
 TRAIN_CONFIG=${TRAIN_CONFIG:-projects/cluster/train_s2_kd_mtp4.yaml}
 DATA_CONFIG=${DATA_CONFIG:-projects/cluster/data_en_s2_kd.yaml}
+# MTP depth heads: set MTP_LAYERS=0 to train the projector only (the MTP+HF-load bridge path is WIP).
+MTP_LAYERS=${MTP_LAYERS:-4}
+
+# Prep (rank 0): build MODEL_HF from base Qwen3.5 + the cascades encoder when it does not exist yet
+# (random projector). Skipped when MODEL_HF already points at a trained stage1_hf.
+RANK=${RANK:-0}
+PREP_DONE=${OUTPUT}/prep.done
+if [[ "${RANK}" == "0" && ! -f "${PREP_DONE}" && ! -d "${MODEL_HF}" ]]; then
+  mkdir -p "${OUTPUT}"
+  python examples/conversion/convert_speech_cascades_stage1_to_hf.py \
+    --base-hf "${BASE_HF}" --encoder-checkpoint "${ENC_CKPT}" --output-dir "${MODEL_HF}"
+  touch "${PREP_DONE}"
+fi
+if [[ ! -d "${MODEL_HF}" ]]; then
+  for _ in $(seq 1 360); do [[ -f "${PREP_DONE}" || -d "${MODEL_HF}" ]] && break; sleep 5; done
+fi
 
 # The warm checkpoint path depends on warm_iters, which lives in TRAIN_CONFIG (single source of truth).
 WARM_ITERS=$(python -c "import yaml,sys;print(yaml.safe_load(open(sys.argv[1])).get('warm_iters',500))" "${TRAIN_CONFIG}")
 WARM_CKPT="${OUTPUT}/warm/checkpoints/iter_$(printf '%07d' "${WARM_ITERS}")"
 
 # Hyperparameters (KD + MTP + optimizer + parallelism) come from TRAIN_CONFIG; only the run-specific
-# data, init paths, phase and output are passed on the CLI.
+# data, model, phase, MTP override and output are passed on the CLI (CLI wins over the yaml).
 COMMON_ARGS=(
   --train-config-yaml "${TRAIN_CONFIG}"
-  --hf-path "${S1_HF}"
+  --hf-path "${MODEL_HF}"
   --streaming-config-yaml "${DATA_CONFIG}"
+  --mtp-num-hidden-layers "${MTP_LAYERS}"
 )
 
-# Phase 1 (warm): init the projector + MTP heads from the stage-1 checkpoint.
+# Phase 1 (warm): cold-start from MODEL_HF (random projector) via --load-hf-weights, or init from a
+# stage-1 Megatron checkpoint when S1_CKPT is set.
+WARM_INIT=(--load-hf-weights)
+if [[ -n "${S1_CKPT}" ]]; then
+  WARM_INIT=(--load-hf-weights --pretrained-checkpoint "${S1_CKPT}")
+fi
 python examples/models/speech_cascades/finetune.py \
   "${COMMON_ARGS[@]}" \
   --kd-phase warm \
-  --pretrained-checkpoint "${S1_CKPT}" \
+  "${WARM_INIT[@]}" \
   --output-dir "${OUTPUT}" --name warm
 
 # Phase 2 (full): initialize from the warm checkpoint (weights only; optimizer / step reset).
