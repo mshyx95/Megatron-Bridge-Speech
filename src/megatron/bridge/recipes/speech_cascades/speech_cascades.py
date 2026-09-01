@@ -223,3 +223,135 @@ def speech_cascades_finetune_config(
     )
 
     return cfg
+
+
+# Reference stage-2 KD+MTP defaults (qwen3-5-4b-s2-proj20m-p1-mtp4-kd-{warm500,full4000}).
+_DEFAULT_MTP_LOSS_DEPTH_WEIGHTS = (0.50, 0.25, 0.15, 0.10)
+
+
+def speech_cascades_s2_kd_config(
+    hf_path: str,
+    *,
+    streaming_config_yaml: str,
+    streaming_force_local: bool = False,
+    streaming_token_budget: Optional[int] = None,
+    output_dir: str | None = None,
+    name: str = "speech_cascades_s2_kd",
+    load_hf_weights: bool = False,
+    pretrained_checkpoint: Optional[str] = None,
+    # Two-phase schedule: warm (projector + MTP warmup) then full (initialized from the warm ckpt).
+    phase: str = "full",
+    init_checkpoint: Optional[str] = None,
+    warm_iters: int = 500,
+    full_iters: int = 4000,
+    train_iters: Optional[int] = None,
+    # Knowledge-distillation hyperparameters (main-path KL + CE mix).
+    distillation_weight: float = 0.75,
+    distillation_temperature: float = 2.0,
+    distillation_kl_chunk_size: int = 128,
+    # Multi-token-prediction depth heads + per-depth self-distillation loss.
+    mtp_num_hidden_layers: int = 4,
+    mtp_loss_weight: float = 1.0,
+    mtp_loss_depth_weights: tuple[float, ...] = _DEFAULT_MTP_LOSS_DEPTH_WEIGHTS,
+    mtp_distillation_weight: float = 0.75,
+    mtp_init_extra_layers_from_first: bool = True,
+    # Parallelism / precision / hyperparameters.
+    tensor_model_parallel_size: int = 1,
+    pipeline_model_parallel_size: int = 1,
+    context_parallel_size: int = 1,
+    sequence_parallel: bool = False,
+    global_batch_size: int = 1,
+    micro_batch_size: int = 1,
+    seq_length: int = 8192,
+    lr: float = 4e-5,
+    min_lr: float = 0.0,
+    lr_warmup_iters: int = 100,
+    weight_decay: float = 0.01,
+    adam_eps: float = 1e-7,
+    lr_decay_style: str = "linear",
+    save_interval: int = 500,
+    activation_recompute: bool = True,
+    precision_config: Optional[Union[MixedPrecisionConfig, str]] = "bf16_mixed",
+    log_interval: int = 10,
+) -> ConfigContainer:
+    """Create the stage-2 speech->text KD + MTP configuration (freeze encoder + LLM).
+
+    Trains only the audio projector and the MTP depth heads: the Conformer encoder (from stage-1) and
+    the language model are frozen. The training loss is the main-path KL+CE knowledge distillation
+    (WP-A2) plus the per-depth MTP self-distillation (WP-C2), both gated on the teacher / MTP tensors
+    the streaming KD data path emits.
+
+    Two-phase schedule (mirrors the reference ``-kd-{warm500,full4000}`` configs):
+
+    - ``phase="warm"``: short warmup (``warm_iters``) cold-starting from the stage-1 model (pass
+      ``load_hf_weights=True`` with the stage-1 ``hf_path``). The MTP heads init from the first
+      decoder layer.
+    - ``phase="full"``: the main run (``full_iters``) initialized from the warm checkpoint (pass
+      ``init_checkpoint`` = the warm run's Megatron checkpoint dir; weights only, optimizer/step
+      reset).
+
+    ``train_iters`` overrides the phase default when provided.
+
+    Args:
+        hf_path: Converted stage-1 HF directory (model config; weights via ``load_hf_weights``).
+        streaming_config_yaml: S2 KD streaming data config (``knowledge_distillation: True``).
+        phase: ``"warm"`` or ``"full"``.
+        init_checkpoint: Warm-phase Megatron checkpoint to initialize the full phase from.
+
+    Returns:
+        A fully populated :class:`ConfigContainer` for ``finetune`` / ``pretrain``.
+    """
+    if phase not in ("warm", "full"):
+        raise ValueError(f"phase must be 'warm' or 'full', got {phase!r}")
+
+    resolved_iters = train_iters if train_iters is not None else (warm_iters if phase == "warm" else full_iters)
+    resolved_pretrained = pretrained_checkpoint
+    if phase == "full" and init_checkpoint is not None:
+        resolved_pretrained = init_checkpoint
+
+    cfg = speech_cascades_finetune_config(
+        hf_path,
+        output_dir=output_dir,
+        name=name,
+        pretrained_checkpoint=resolved_pretrained,
+        load_hf_weights=load_hf_weights,
+        streaming_config_yaml=streaming_config_yaml,
+        streaming_force_local=streaming_force_local,
+        streaming_token_budget=streaming_token_budget,
+        tensor_model_parallel_size=tensor_model_parallel_size,
+        pipeline_model_parallel_size=pipeline_model_parallel_size,
+        context_parallel_size=context_parallel_size,
+        sequence_parallel=sequence_parallel,
+        train_iters=resolved_iters,
+        global_batch_size=global_batch_size,
+        micro_batch_size=micro_batch_size,
+        seq_length=seq_length,
+        lr=lr,
+        min_lr=min_lr,
+        lr_warmup_iters=lr_warmup_iters,
+        weight_decay=weight_decay,
+        adam_eps=adam_eps,
+        lr_decay_style=lr_decay_style,
+        save_interval=save_interval,
+        # Stage-2: freeze the LLM; the encoder is frozen separately so the projector stays trainable.
+        freeze_language_model=True,
+        freeze_audio_model=False,
+        activation_recompute=activation_recompute,
+        precision_config=precision_config,
+        log_interval=log_interval,
+    )
+
+    model_cfg = cfg.model
+    # Encoder frozen (trained in stage-1); projector + MTP heads remain trainable.
+    model_cfg.freeze_audio_encoder = True
+    model_cfg.knowledge_distillation = True
+    model_cfg.distillation_weight = distillation_weight
+    model_cfg.distillation_temperature = distillation_temperature
+    model_cfg.distillation_kl_chunk_size = distillation_kl_chunk_size
+    model_cfg.mtp_num_hidden_layers = mtp_num_hidden_layers
+    model_cfg.mtp_loss_weight = mtp_loss_weight
+    model_cfg.mtp_loss_depth_weights = list(mtp_loss_depth_weights)
+    model_cfg.mtp_distillation_weight = mtp_distillation_weight
+    model_cfg.mtp_init_extra_layers_from_first = mtp_init_extra_layers_from_first
+
+    return cfg

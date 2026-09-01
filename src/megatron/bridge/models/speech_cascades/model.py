@@ -124,13 +124,29 @@ class SpeechCascadesModel(MegatronModule):
         assert len(input_tensor) == 1, "SpeechCascadesModel expects a single input tensor"
         self.language_model.set_input_tensor(input_tensor[0])
 
-    def freeze(self, *, freeze_language_model: bool = False, freeze_audio_model: bool = False) -> None:
-        """Freeze the language and/or audio submodules."""
+    def freeze(
+        self,
+        *,
+        freeze_language_model: bool = False,
+        freeze_audio_model: bool = False,
+        freeze_audio_encoder: bool = False,
+    ) -> None:
+        """Freeze the language model, the whole audio module, and/or just the audio encoder.
+
+        ``freeze_audio_encoder`` freezes only the Conformer encoder inside the audio module, leaving
+        the projection (and the MTP depth heads) trainable, as required by the stage-2 KD recipe.
+        """
         modules = []
         if freeze_language_model and self.language_model is not None:
             modules.append(self.language_model)
         if freeze_audio_model and self.audio_model is not None:
             modules.append(self.audio_model)
+        if (
+            freeze_audio_encoder
+            and self.audio_model is not None
+            and getattr(self.audio_model, "encoder", None) is not None
+        ):
+            modules.append(self.audio_model.encoder)
         for module in modules:
             for param in module.parameters():
                 param.requires_grad = False
