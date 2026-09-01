@@ -1,13 +1,14 @@
 # Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Native Megatron-Bridge stage-2 speech->text KD + MTP on Singularity (aiservices-vc02-eu2 / eus2).
-# Freezes the stage-1 encoder + Qwen3.5 LM and trains the audio projector + 4 MTP depth heads with the
-# KL+CE distillation loss and per-depth MTP self-distillation. Two-phase warm(500) -> full(4000),
-# initialized from the stage-1 checkpoint; streams the S2 KD data mixture (data_en_s2_kd.yaml, with
-# knowledge_distillation: True). Mirrors the stage-1 VC02 job configuration.
+# Native Megatron-Bridge stage-2 speech->text KD on Singularity (aiservices-vc02-eu2 / eus2).
+# From scratch: builds the HF from base Qwen3.5 + the cascades encoder (random projector), freezes the
+# encoder + Qwen3.5 LM and trains the audio projector with the main-path KL+CE distillation loss.
+# MTP is off for this run (MTP_LAYERS=0; the MTP + HF-load bridge path is WIP). Two-phase warm(500) ->
+# full(4000); streams the ASR:nothink:continuation = 1:1:1 KD data mixture (data_en_s2_kd_3way.yaml,
+# knowledge_distillation: True).
 
-description: yuxuanhu_s2s_qwen bridge 4B S2 KD+MTP4 proj+mtp (VC02, torch210/upstream)
+description: yuxuanhu_s2s_qwen bridge 4B S2 KD projector-only, 3way 1:1:1 data, from scratch (VC02, torch210)
 
 env_defaults:
   NODES: 2
@@ -15,13 +16,16 @@ env_defaults:
   sla_tier: standard
   TARGET: aiservices-vc02-eu2
   IMAGE: jing-dev:mega_torch210-bridge-speech-train2
-  JOB_NAME: qwen3-5-4b-s2-kd-mtp4-torch210
-  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-mtp4-torch210
-  S1_HF: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/stage1_hf
-  S1_CKPT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/run/checkpoints/iter_0012000
+  JOB_NAME: qwen3-5-4b-s2-kd-3way-projonly-torch210
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-3way-projonly-torch210
+  # From scratch: build the HF from base Qwen3.5 + the cascades encoder (random projector); no stage-1.
+  BASE_HF: /datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B
+  ENC_CKPT: /datablob1/users/ruchaofan/cascades_speech_encoder/checkpoint_22L/model.checkpoint
   # Reusable configs: swap DATA_CONFIG to change the data mixture; edit TRAIN_CONFIG for hyperparameters.
   TRAIN_CONFIG: projects/cluster/train_s2_kd_mtp4.yaml
-  DATA_CONFIG: projects/cluster/data_en_s2_kd.yaml
+  DATA_CONFIG: projects/cluster/data_en_s2_kd_3way.yaml
+  # MTP off for this run (the MTP + HF-load bridge path is WIP); trains the projector only.
+  MTP_LAYERS: 0
 
 target:
   service: sing
@@ -58,10 +62,11 @@ jobs:
     command:
       - nvidia-smi
       - export OUTPUT=${OUTPUT}
-      - export S1_HF=${S1_HF}
-      - export S1_CKPT=${S1_CKPT}
+      - export BASE_HF=${BASE_HF}
+      - export ENC_CKPT=${ENC_CKPT}
       - export TRAIN_CONFIG=${TRAIN_CONFIG}
       - export DATA_CONFIG=${DATA_CONFIG}
+      - export MTP_LAYERS=${MTP_LAYERS}
       - bash projects/cluster/run_speech_cascades_s2_kd.sh
     submit_args:
       container_args:
