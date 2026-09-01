@@ -219,11 +219,11 @@ WP0 (done)
 | WP | Title | Status |
 | --- | --- | --- |
 | WP0 | KL distillation loss | DONE |
-| WP-A1 | Teacher text-forward data path | TODO |
+| WP-A1 | Teacher text-forward data path | DONE (baee76825) |
 | WP-A2 | Dual-forward KD loss in step | TODO |
 | WP-A3 | S2 KD recipe + smoke | TODO |
-| WP-B1 | S2 KD data spec | TODO |
-| WP-C1 | MTP depth heads on the model (REQUIRED) | TODO |
+| WP-B1 | S2 KD data spec | DONE (2caccc3c8) |
+| WP-C1 | MTP depth heads on the model (REQUIRED) | DONE (eefa9f759) |
 | WP-C2 | MTP per-depth KL+CE loss (REQUIRED) | TODO |
 | WP-D1 | BBH judge eval | TODO |
 | WP-D2 | VoiceBench eval | TODO |
