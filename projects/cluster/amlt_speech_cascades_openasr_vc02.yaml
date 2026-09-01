@@ -15,8 +15,10 @@ env_defaults:
   TARGET: aiservices-vc02-eu2
   IMAGE: jing-dev:mega_torch210-bridge-speech-train2
   JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-openasr
-  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2
-  CHECKPOINT_ITER: 12000
+  # Swap MODEL_HF + MODEL_CKPT to evaluate a different model; RESULT_DIR is where scores are written.
+  MODEL_HF: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2/stage1_hf
+  MODEL_CKPT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2/run/checkpoints/iter_0012000
+  RESULT_DIR: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2/eval_output/openasr
 
 target:
   service: sing
@@ -52,8 +54,9 @@ jobs:
     process_count_per_node: 8
     command:
       - nvidia-smi
-      - export OUTPUT=${OUTPUT}
-      - export CHECKPOINT_ITER=${CHECKPOINT_ITER}
+      - export MODEL_HF=${MODEL_HF}
+      - export MODEL_CKPT=${MODEL_CKPT}
+      - export RESULT_DIR=${RESULT_DIR}
       - bash projects/cluster/run_speech_cascades_openasr.sh
     submit_args:
       container_args:
