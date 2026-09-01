@@ -28,7 +28,11 @@ from typing import Any, Iterable
 import torch
 from megatron.core.transformer import MegatronModule
 
-from megatron.bridge.models.speech_cascades.distillation import chunked_kl_divergence, distillation_loss
+from megatron.bridge.models.speech_cascades.distillation import (
+    chunked_kl_divergence,
+    distillation_loss,
+    mtp_depth_loss,
+)
 from megatron.bridge.models.speech_cascades.obs_logging import add_audio_seconds
 from megatron.bridge.training.losses import create_masked_next_token_loss_function, masked_next_token_loss
 from megatron.bridge.training.state import GlobalState
@@ -159,6 +163,7 @@ def forward_step(
 
     inner = _unwrap_model(model)
     kl_loss = _compute_kd_kl(inner, batch, loss_mask)
+    mtp_loss = _compute_mtp_loss(inner, batch, loss_mask)
     distillation_weight = float(
         getattr(inner.config, "distillation_weight", _DEFAULT_DISTILLATION_WEIGHT)
     )
@@ -169,6 +174,7 @@ def forward_step(
         distillation_weight,
         check_for_nan_in_loss,
         check_for_spiky_loss,
+        mtp_loss=mtp_loss,
     )
     return output_tensor, loss_function
 
@@ -237,6 +243,43 @@ def _compute_kd_kl(inner: MegatronModule, batch: dict[str, Any], loss_mask: torc
     )
 
 
+def _compute_mtp_loss(
+    inner: MegatronModule, batch: dict[str, Any], loss_mask: torch.Tensor
+) -> torch.Tensor | None:
+    """Compute the aggregated MTP per-depth KL+CE loss, or ``None`` when MTP is disabled.
+
+    Gated to a no-op (returns ``None``) when ``mtp_num_hidden_layers == 0`` or the model did not
+    expose per-depth hidden states, so the WP-A2 KD path and the ASR path stay byte-identical. The
+    depth-KL teacher target is the student's own main hidden states (``captured_hidden_states``,
+    ``h^0``), detached inside :func:`mtp_depth_loss` (self-distillation, no teacher-text forward).
+    """
+    config = inner.config
+    if int(getattr(config, "mtp_num_hidden_layers", 0)) == 0:
+        return None
+    mtp_hidden_states = getattr(inner, "mtp_hidden_states", None)
+    if not mtp_hidden_states:
+        return None
+    main_hidden = inner.captured_hidden_states
+    if main_hidden is None:
+        return None
+
+    temperature = float(getattr(config, "distillation_temperature", _DEFAULT_DISTILLATION_TEMPERATURE))
+    chunk_size = int(getattr(config, "distillation_kl_chunk_size", _DEFAULT_DISTILLATION_KL_CHUNK_SIZE))
+    mtp_loss, _ = mtp_depth_loss(
+        mtp_hidden_states,
+        main_hidden,
+        batch["labels"],
+        loss_mask,
+        _make_logits_fn(inner),
+        temperature=temperature,
+        chunk_size=chunk_size,
+        mtp_distillation_weight=float(getattr(config, "mtp_distillation_weight", 0.0)),
+        mtp_loss_weight=float(getattr(config, "mtp_loss_weight", 0.0)),
+        mtp_loss_depth_weights=getattr(config, "mtp_loss_depth_weights", None),
+    )
+    return mtp_loss
+
+
 def _kd_loss_function(
     loss_mask: torch.Tensor,
     kl_loss: torch.Tensor,
@@ -244,21 +287,26 @@ def _kd_loss_function(
     check_for_nan_in_loss: bool,
     check_for_spiky_loss: bool,
     output_tensor: torch.Tensor,
+    *,
+    mtp_loss: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-    """Mix the precomputed KD KL with the existing masked next-token CE.
+    """Mix the precomputed KD KL with the existing masked next-token CE (+ optional MTP loss).
 
     ``masked_next_token_loss`` returns a token-summed CE and the pipeline schedule later divides the
     returned scalar by ``num_tokens``. The KL from ``chunked_kl_divergence`` is a per-token mean, so
     it is scaled by ``num_tokens`` before mixing to keep the effective loss
     ``w * KL_mean + (1 - w) * CE_mean`` after normalization (matching the reference).
 
-    WP-C2 extends the total loss here: after ``total_loss`` is formed, add
-    ``total_loss = total_loss + mtp_loss_weight * mtp_loss`` (the per-depth MTP KL+CE built from
-    ``model.mtp_hidden_states``), likewise scaled by ``num_tokens``.
+    WP-C2: when ``mtp_loss`` is provided it is the aggregated per-depth MTP KL+CE (already scaled by
+    ``mtp_loss_weight`` and reduced across depths by :func:`mtp_depth_loss`), a per-token-mean scale,
+    so it is likewise multiplied by ``num_tokens`` before being added onto the total. ``None`` (MTP
+    disabled) leaves the WP-A2 KD loss byte-identical.
     """
     ce_loss, num_tokens, reporting = masked_next_token_loss(
         loss_mask, output_tensor, check_for_nan_in_loss, check_for_spiky_loss
     )
     scaled_kl = kl_loss * num_tokens.clamp(min=1)
     total_loss = distillation_loss(scaled_kl, ce_loss, distillation_weight)
+    if mtp_loss is not None:
+        total_loss = total_loss + mtp_loss * num_tokens.clamp(min=1)
     return total_loss, num_tokens, reporting
