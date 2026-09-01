@@ -31,6 +31,72 @@ import torch
 IGNORE_INDEX = -100
 
 
+def derive_transcript_ids(
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    ignore_index: int = IGNORE_INDEX,
+) -> list[torch.Tensor]:
+    """Derive the per-audio-segment transcript token ids from an ASR example.
+
+    For every ASR group the assistant response *is* the reference transcript, so the supervised
+    (``labels != ignore_index``) token run that follows each audio placeholder span holds exactly the
+    transcript tokens the teacher path needs to substitute for that span. Each contiguous run of the
+    placeholder id ``-(k + 1)`` marks audio segment ``k``; the first supervised label run after it is
+    taken as segment ``k``'s transcript, ordered so the returned list indexes by segment ``k``.
+
+    Args:
+        input_ids: Student token ids, shape ``(L,)`` or ``(1, L)``. Audio segments are negative ids.
+        labels: Student (unshifted) labels, same shape as ``input_ids``; the answer token id at each
+            response position and ``ignore_index`` elsewhere.
+        ignore_index: Label value marking ignored (non-response) positions.
+
+    Returns:
+        A list of 1D ``long`` tensors, one per audio segment ``k`` in order, on the input device.
+
+    Raises:
+        ValueError: if a segment has no supervised response run to derive a transcript from.
+    """
+    ids_list = input_ids.reshape(-1).tolist()
+    labs_list = labels.reshape(-1).tolist()
+    length = len(ids_list)
+
+    transcripts_by_segment: dict[int, list[int]] = {}
+    max_segment = -1
+    position = 0
+    pending_segment: int | None = None
+    while position < length:
+        token = ids_list[position]
+        if token < 0:
+            segment = -token - 1
+            max_segment = max(max_segment, segment)
+            run_end = position
+            while run_end < length and ids_list[run_end] == token:
+                run_end += 1
+            pending_segment = segment
+            position = run_end
+        elif pending_segment is not None and labs_list[position] != ignore_index:
+            run_end = position
+            span: list[int] = []
+            while run_end < length and ids_list[run_end] >= 0 and labs_list[run_end] != ignore_index:
+                span.append(labs_list[run_end])
+                run_end += 1
+            transcripts_by_segment.setdefault(pending_segment, span)
+            pending_segment = None
+            position = run_end
+        else:
+            position += 1
+
+    device = input_ids.device
+    transcripts: list[torch.Tensor] = []
+    for segment in range(max_segment + 1):
+        span = transcripts_by_segment.get(segment)
+        if not span:
+            raise ValueError(f"could not derive a transcript for audio segment {segment}")
+        transcripts.append(torch.tensor(span, dtype=torch.long, device=device))
+    return transcripts
+
+
 def build_teacher_text_example(
     input_ids: torch.Tensor,
     labels: torch.Tensor,

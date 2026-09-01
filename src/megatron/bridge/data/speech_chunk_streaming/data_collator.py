@@ -15,6 +15,7 @@ from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.transforms.utils
 from megatron.bridge.data.speech_chunk.teacher_text import (
     build_teacher_text_example,
     collate_teacher_text_examples,
+    derive_transcript_ids,
 )
 
 
@@ -407,7 +408,10 @@ class ALMDataDynamicCollator(LMDataCollator):
         examples: List[Dict[str, torch.LongTensor]],
         batch: Dict[str, torch.LongTensor],
     ) -> None:
-        """Attach the teacher text batch when every example carries ``transcript_ids``."""
+        """Attach the teacher text batch, deriving transcript_ids from ASR responses when absent."""
+        for e in examples:
+            if e.get("transcript_ids") is None:
+                e["transcript_ids"] = derive_transcript_ids(e["input_ids"], e["labels"])
         present = ["transcript_ids" in e for e in examples]
         if not any(present):
             return

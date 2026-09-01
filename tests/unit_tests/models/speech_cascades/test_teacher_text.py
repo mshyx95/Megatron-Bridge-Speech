@@ -6,7 +6,10 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from megatron.bridge.data.speech_chunk import ALMDataCollator  # noqa: E402
-from megatron.bridge.data.speech_chunk.teacher_text import build_teacher_text_example  # noqa: E402
+from megatron.bridge.data.speech_chunk.teacher_text import (  # noqa: E402
+    build_teacher_text_example,
+    derive_transcript_ids,
+)
 from megatron.bridge.models.speech_cascades.step import get_alm_batch  # noqa: E402
 
 
@@ -71,6 +74,35 @@ def test_build_teacher_text_example_raises_on_missing_transcript():
     labels = torch.tensor([IGNORE_INDEX, IGNORE_INDEX, 5], dtype=torch.long)
     with pytest.raises(ValueError, match="no transcript|only 1 transcript"):
         build_teacher_text_example(input_ids, labels, [torch.tensor([9], dtype=torch.long)])
+
+
+def test_derive_transcript_ids_single_segment():
+    """ASR response labels become the segment transcript when transcript_ids is absent."""
+    record = _make_kd_record(audio_size=3, answer=(200, 201, 202))
+    transcripts = derive_transcript_ids(record["input_ids"], record["labels"])
+    assert len(transcripts) == 1
+    # The transcript is the supervised response run following the audio placeholder span.
+    assert transcripts[0].tolist() == [200, 201, 202]
+    assert transcripts[0].dtype == torch.long
+
+
+def test_derive_transcript_ids_multi_segment_packed():
+    """A packed multi-utterance sequence yields one transcript per audio segment, in order."""
+    # [prompt, audio0(-1 x2), ans0, prompt, audio1(-2 x3), ans1]
+    input_ids = torch.tensor([100, -1, -1, 200, 201, 101, -2, -2, -2, 300], dtype=torch.long)
+    labels = torch.tensor(
+        [IGNORE_INDEX, IGNORE_INDEX, IGNORE_INDEX, 200, 201, IGNORE_INDEX, IGNORE_INDEX, IGNORE_INDEX, IGNORE_INDEX, 300],
+        dtype=torch.long,
+    )
+    transcripts = derive_transcript_ids(input_ids, labels)
+    assert [t.tolist() for t in transcripts] == [[200, 201], [300]]
+
+
+def test_derive_transcript_ids_raises_on_missing_response():
+    input_ids = torch.tensor([100, -1, -1, 102], dtype=torch.long)
+    labels = torch.tensor([IGNORE_INDEX] * 4, dtype=torch.long)
+    with pytest.raises(ValueError):
+        derive_transcript_ids(input_ids, labels)
 
 
 def test_collator_emits_teacher_batch_when_kd_enabled():

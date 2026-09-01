@@ -1,0 +1,87 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Native Megatron-Bridge stage-2 speech->text KD + MTP on Singularity (aiservices-vc02-eu2 / eus2).
+# Freezes the stage-1 encoder + Qwen3.5 LM and trains the audio projector + 4 MTP depth heads with the
+# KL+CE distillation loss and per-depth MTP self-distillation. Two-phase warm(500) -> full(4000),
+# initialized from the stage-1 checkpoint; streams the S2 KD data mixture (data_en_s2_kd.yaml, with
+# knowledge_distillation: True). Mirrors the stage-1 VC02 job configuration.
+
+description: yuxuanhu_s2s_qwen bridge 4B S2 KD+MTP4 proj+mtp (VC02, torch210/upstream)
+
+env_defaults:
+  NODES: 2
+  SKU: 80G8-H100-IB-NvLink
+  sla_tier: standard
+  TARGET: aiservices-vc02-eu2
+  IMAGE: jing-dev:mega_torch210-bridge-speech-train2
+  JOB_NAME: qwen3-5-4b-s2-kd-mtp4-torch210
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-mtp4-torch210
+  S1_HF: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/stage1_hf
+  S1_CKPT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/run/checkpoints/iter_0012000
+  DATA_YAML: projects/cluster/data_en_s2_kd.yaml
+  WARM_ITERS: 500
+  FULL_ITERS: 4000
+  SAVE_INTERVAL: 500
+  GLOBAL_BSZ: 64
+  MICRO_BSZ: 1
+  SEQ_LEN: 8192
+  LR: 4.0e-5
+  LR_WARMUP: 100
+  LOG_INTERVAL: 10
+
+target:
+  service: sing
+  name: ${TARGET}
+  workspace_name: aiservices-prod-ws02-eus2
+
+environment:
+  registry: speechllmregistry.azurecr.io
+  image: ${IMAGE}
+
+storage:
+  output:
+    storage_account_name: tsstd01eus2
+    container_name: amulet
+  model_blob:
+    storage_account_name: tsstd01eus2
+    container_name: data
+    mount_dir: /modelblob
+  data_blob:
+    storage_account_name: highperf01eus2
+    container_name: data
+    mount_dir: /datablob1
+
+code:
+  local_dir: $CONFIG_DIR/../..
+
+jobs:
+  - name: ${JOB_NAME}
+    sku: ${NODES}x${SKU}
+    sla_tier: ${sla_tier}
+    priority: high
+    mpi: True
+    process_count_per_node: 8
+    command:
+      - nvidia-smi
+      - export OUTPUT=${OUTPUT}
+      - export S1_HF=${S1_HF}
+      - export S1_CKPT=${S1_CKPT}
+      - export DATA_YAML=${DATA_YAML}
+      - export WARM_ITERS=${WARM_ITERS}
+      - export FULL_ITERS=${FULL_ITERS}
+      - export SAVE_INTERVAL=${SAVE_INTERVAL}
+      - export GLOBAL_BSZ=${GLOBAL_BSZ}
+      - export MICRO_BSZ=${MICRO_BSZ}
+      - export SEQ_LEN=${SEQ_LEN}
+      - export LR=${LR}
+      - export LR_WARMUP=${LR_WARMUP}
+      - export LOG_INTERVAL=${LOG_INTERVAL}
+      - bash projects/cluster/run_speech_cascades_s2_kd.sh
+    submit_args:
+      container_args:
+        SHARED_MEMORY_PERCENT: 0.5
+      env:
+        NCCL_DEBUG: "INFO"
+        _AZUREML_SINGULARITY_JOB_UAI: aiservices-training-c02-uai-eus2
+    identity: managed
