@@ -20,13 +20,9 @@ env_defaults:
   IMAGE: jing-dev:mega_torch210-bridge-speech-train2
   JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-full-v3
   OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3
-  TRAIN_ITERS: 12000
-  SAVE_INTERVAL: 2000
-  GLOBAL_BSZ: 64
-  MICRO_BSZ: 1
-  SEQ_LEN: 8192
-  LR_WARMUP: 100
-  LOG_INTERVAL: 10
+  # Reusable configs: swap DATA_CONFIG to change the data mixture; edit TRAIN_CONFIG for hyperparameters.
+  TRAIN_CONFIG: projects/cluster/train_en_asr_s1.yaml
+  DATA_CONFIG: projects/cluster/data_en_asr_s1.yaml
 
 target:
   service: sing
@@ -63,13 +59,8 @@ jobs:
     command:
       - nvidia-smi
       - export OUTPUT=${OUTPUT}
-      - export TRAIN_ITERS=${TRAIN_ITERS}
-      - export SAVE_INTERVAL=${SAVE_INTERVAL}
-      - export GLOBAL_BSZ=${GLOBAL_BSZ}
-      - export MICRO_BSZ=${MICRO_BSZ}
-      - export SEQ_LEN=${SEQ_LEN}
-      - export LR_WARMUP=${LR_WARMUP}
-      - export LOG_INTERVAL=${LOG_INTERVAL}
+      - export TRAIN_CONFIG=${TRAIN_CONFIG}
+      - export DATA_CONFIG=${DATA_CONFIG}
       - bash projects/cluster/run_speech_cascades_stage1.sh
     submit_args:
       container_args:

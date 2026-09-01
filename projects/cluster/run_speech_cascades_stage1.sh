@@ -33,17 +33,9 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 BASE_HF=${BASE_HF:-/datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B}
 ENC_CKPT=${ENC_CKPT:-/datablob1/users/ruchaofan/cascades_speech_encoder/checkpoint_22L/model.checkpoint}
 OUTPUT=${OUTPUT:-/modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-smoke}
-DATA_YAML=${DATA_YAML:-projects/cluster/data_en_asr_s1.yaml}
-TP=${TP:-1}
-PP=${PP:-1}
-SEQ_LEN=${SEQ_LEN:-8192}
-GLOBAL_BSZ=${GLOBAL_BSZ:-64}
-MICRO_BSZ=${MICRO_BSZ:-1}
-TRAIN_ITERS=${TRAIN_ITERS:-12000}
-SAVE_INTERVAL=${SAVE_INTERVAL:-2000}
-LR=${LR:-1.0e-4}
-LR_WARMUP=${LR_WARMUP:-100}
-LOG_INTERVAL=${LOG_INTERVAL:-10}
+# Reusable configs: TRAIN_CONFIG holds the model/training hyperparameters, DATA_CONFIG the data mixture.
+TRAIN_CONFIG=${TRAIN_CONFIG:-projects/cluster/train_en_asr_s1.yaml}
+DATA_CONFIG=${DATA_CONFIG:-projects/cluster/data_en_asr_s1.yaml}
 
 export STAGE1_HF=${OUTPUT}/stage1_hf
 PREP_DONE=${OUTPUT}/prep.done
@@ -57,15 +49,11 @@ if [[ "${RANK}" == "0" && ! -f "${PREP_DONE}" ]]; then
 fi
 for _ in $(seq 1 360); do [[ -f "${PREP_DONE}" ]] && break; sleep 5; done
 
+# Hyperparameters (freeze/optimizer/iters/parallelism) come from TRAIN_CONFIG; only the run-specific
+# model dir, data and output are passed on the CLI.
 python examples/models/speech_cascades/finetune.py \
+  --train-config-yaml "${TRAIN_CONFIG}" \
   --hf-path "${STAGE1_HF}" \
   --load-hf-weights \
-  --freeze-language-model \
-  --activation-recompute \
-  --streaming-config-yaml "${DATA_YAML}" \
-  --output-dir "${OUTPUT}" --name run \
-  --tensor-model-parallel-size "${TP}" --pipeline-model-parallel-size "${PP}" \
-  --train-iters "${TRAIN_ITERS}" --global-batch-size "${GLOBAL_BSZ}" \
-  --micro-batch-size "${MICRO_BSZ}" --seq-length "${SEQ_LEN}" \
-  --save-interval "${SAVE_INTERVAL}" --lr "${LR}" --lr-warmup-iters "${LR_WARMUP}" \
-  --log-interval "${LOG_INTERVAL}"
+  --streaming-config-yaml "${DATA_CONFIG}" \
+  --output-dir "${OUTPUT}" --name run
