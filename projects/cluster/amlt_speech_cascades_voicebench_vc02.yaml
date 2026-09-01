@@ -51,7 +51,7 @@ jobs:
   - name: ${JOB_NAME}
     sku: ${NODES}x${SKU}
     sla_tier: ${sla_tier}
-    priority: high
+    priority: low
     mpi: True
     process_count_per_node: 8
     command:
