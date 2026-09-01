@@ -17,6 +17,7 @@ from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.transforms.promp
     ASR_DIARIZATION_PROMPT,
     BIAS_PROMPTS,
     SCRIPT_PROMPTS,
+    AUDIO_CONTINUATION_PROMPTS,
 )
 
 from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.transforms.lang_utils import LANGUAGE_PAIRS as language_pairs
@@ -121,7 +122,7 @@ def pad_features(inputs, pad_value=0, return_pt=True):
     return tensors, nframe
     
 
-def convert_to_prompt(roles, text, prompt_formatter, fixed_prompt=True, user_prompt=None, language=None, context=None):
+def convert_to_prompt(roles, text, prompt_formatter, fixed_prompt=True, user_prompt=None, language=None, context=None, audio_transcripts=None):
     """
     user_prompt: 3 cases:
     1. In stage-1 training, if use pre-defined hard-coded prompt:
@@ -144,6 +145,12 @@ def convert_to_prompt(roles, text, prompt_formatter, fixed_prompt=True, user_pro
         if context is not None and context.strip() != "":
             bias_prompt = BIAS_PROMPTS[0] if fixed_prompt else random.choice(BIAS_PROMPTS)
             prompt += f" {bias_prompt} {context}."
+    elif prompt_formatter in ['audio-response', 'audio-response-with-transcription']:
+        assert user_prompt is None, f"{prompt_formatter} data requires no additional text prompt"
+        prompt = None
+    elif prompt_formatter in ['audio-continuation', 'audio-continuation-with-transcription']:
+        assert user_prompt is None, f"{prompt_formatter} data requires no additional text prompt"
+        prompt = AUDIO_CONTINUATION_PROMPTS[0] if fixed_prompt else random.choice(AUDIO_CONTINUATION_PROMPTS)
     elif prompt_formatter == 'lid':
         prompt = LID_PROMPTS[0] if fixed_prompt else random.choice(LID_PROMPTS)
         text = random.choice(LID_ANSWERS).format(lang=language_pairs[language])
@@ -170,7 +177,25 @@ def convert_to_prompt(roles, text, prompt_formatter, fixed_prompt=True, user_pro
     else:
         raise NotImplementedError
     
-    if prompt is not None:
+    if prompt_formatter in {
+        'audio-response-with-transcription',
+        'audio-continuation-with-transcription',
+    }:
+        if (
+            audio_transcripts is None
+            or len(audio_transcripts) != 1
+            or not isinstance(audio_transcripts[0], str)
+            or not audio_transcripts[0].strip()
+        ):
+            raise ValueError(
+                f"{prompt_formatter} requires exactly one non-empty audio transcript"
+            )
+        transcription = audio_transcripts[0].strip()
+        text = f"<think></think> <ASR> The user said: {transcription} </ASR> {text}"
+
+    if prompt_formatter in ['audio-continuation', 'audio-continuation-with-transcription']:
+        messages = [[user_role_str, f"{prompt}\n\n<audio>"], [assistant_role_str, f"{text}"]]
+    elif prompt is not None:
         messages = [[user_role_str, f"<audio>\n{prompt}"], [assistant_role_str, f"{text}"]]
     else:
         messages = [[user_role_str, f"<audio>\n"], [assistant_role_str, f"{text}"]]
