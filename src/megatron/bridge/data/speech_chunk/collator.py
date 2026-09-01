@@ -39,6 +39,11 @@ from typing import Any
 import numpy as np
 import torch
 
+from megatron.bridge.data.speech_chunk.teacher_text import (
+    build_teacher_text_example,
+    collate_teacher_text_examples,
+)
+
 
 IGNORE_INDEX = -100
 
@@ -87,11 +92,15 @@ class ALMDataCollator:
         audio_key: Batch key under which the padded audio features are stored.
         padding_mask: When ``True`` add a boolean ``attention_mask`` computed as
             ``input_ids != pad_token_id``.
+        knowledge_distillation: When ``True`` and every example carries ``transcript_ids``,
+            also emit the teacher text batch (``teacher_input_ids``, ``teacher_labels``,
+            ``teacher_attention_mask``) for KD. Default off leaves the ASR batch unchanged.
     """
 
     pad_token_id: int
     audio_key: str = "inputs_embeds"
     padding_mask: bool = False
+    knowledge_distillation: bool = False
 
     def _as_2d(self, value: torch.Tensor) -> torch.Tensor:
         return value if value.dim() == 2 else value.unsqueeze(0)
@@ -139,4 +148,25 @@ class ALMDataCollator:
         batch["audio_attention_mask"] = audio_attention_mask
         batch["audio_embed_sizes"] = torch.cat(audio_embed_sizes).long()
         batch["audio_frames"] = torch.cat(audio_frames).long()
+        if self.knowledge_distillation:
+            self._add_teacher_batch(examples, batch)
         return batch
+
+    def _add_teacher_batch(self, examples: list[dict[str, Any]], batch: dict[str, Any]) -> None:
+        """Attach the teacher text batch when every example carries ``transcript_ids``."""
+        present = ["transcript_ids" in e for e in examples]
+        if not any(present):
+            return
+        if not all(present):
+            raise ValueError(
+                "A knowledge-distillation batch cannot mix examples with and without transcript_ids: "
+                f"{sum(present)}/{len(examples)} examples have transcript_ids"
+            )
+        teacher_input_ids, teacher_labels = [], []
+        for e in examples:
+            ids, labs = build_teacher_text_example(
+                self._as_2d(e["input_ids"]), self._as_2d(e["labels"]), e["transcript_ids"]
+            )
+            teacher_input_ids.append(ids)
+            teacher_labels.append(labs)
+        batch.update(collate_teacher_text_examples(teacher_input_ids, teacher_labels, self.pad_token_id))
