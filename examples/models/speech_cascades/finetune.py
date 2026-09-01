@@ -51,6 +51,31 @@ def _load_recipe():
     return recipe_module
 
 
+def _apply_train_config_yaml(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Fill args from a training-config yaml for every option not passed explicitly on the CLI.
+
+    Keeps data (``--streaming-config-yaml``) and run-specific paths on the CLI while the reusable
+    training/model hyperparameters live in the yaml. CLI flags win over yaml; yaml wins over argparse
+    defaults. Unknown yaml keys raise, so a typo can never silently create a phantom setting.
+    """
+    if not args.train_config_yaml:
+        return
+    import yaml
+
+    with open(args.train_config_yaml) as handle:
+        train_cfg = yaml.safe_load(handle) or {}
+    if not isinstance(train_cfg, dict):
+        parser.error(f"--train-config-yaml must be a mapping, got {type(train_cfg).__name__}")
+
+    passed = {token[2:].split("=", 1)[0].replace("-", "_") for token in sys.argv[1:] if token.startswith("--")}
+    for key, value in train_cfg.items():
+        dest = str(key).replace("-", "_")
+        if not hasattr(args, dest):
+            parser.error(f"--train-config-yaml has unknown key '{key}'")
+        if dest not in passed:
+            setattr(args, dest, value)
+
+
 def main() -> None:
     """Build the speech-cascades fine-tune config and run the native training loop."""
     # Patch torch.distributed.checkpoint.load for PyTorch>=2.6 (drops the no_dist kwarg MCore passes).
@@ -71,6 +96,11 @@ def main() -> None:
     parser.add_argument("--hf-path", required=True, help="Converted HF directory (model config + optional weights).")
     parser.add_argument("--train-shards", nargs="+", default=None, help="Local .pt ALM example-record shards.")
     parser.add_argument("--streaming-config-yaml", default=None, help="OmegaConf data config for real streaming data.")
+    parser.add_argument(
+        "--train-config-yaml",
+        default=None,
+        help="Training/model config yaml (recipe hyperparameters). CLI flags override yaml values.",
+    )
     parser.add_argument("--streaming-force-local", action="store_true", help="Read streaming data from mounts.")
     parser.add_argument("--streaming-token-budget", type=int, default=None, help="Override per-batch frame budget.")
     parser.add_argument("--val-shards", nargs="+", default=None, help="Optional validation shards.")
@@ -111,6 +141,8 @@ def main() -> None:
     )
     parser.add_argument("--mtp-distillation-weight", type=float, default=0.75, help="MTP per-depth KL vs CE mix.")
     args = parser.parse_args()
+
+    _apply_train_config_yaml(args, parser)
 
     if args.s2_kd:
         if args.streaming_config_yaml is None:

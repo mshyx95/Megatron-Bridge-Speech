@@ -39,45 +39,32 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 S1_HF=${S1_HF:-/modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/stage1_hf}
 S1_CKPT=${S1_CKPT:-/modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/run/checkpoints/iter_0012000}
 OUTPUT=${OUTPUT:-/modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-mtp4-torch210}
-DATA_YAML=${DATA_YAML:-projects/cluster/data_en_s2_kd.yaml}
-TP=${TP:-1}
-PP=${PP:-1}
-SEQ_LEN=${SEQ_LEN:-8192}
-GLOBAL_BSZ=${GLOBAL_BSZ:-64}
-MICRO_BSZ=${MICRO_BSZ:-1}
-WARM_ITERS=${WARM_ITERS:-500}
-FULL_ITERS=${FULL_ITERS:-4000}
-SAVE_INTERVAL=${SAVE_INTERVAL:-500}
-LR=${LR:-4.0e-5}
-LR_WARMUP=${LR_WARMUP:-100}
-LOG_INTERVAL=${LOG_INTERVAL:-10}
+# Reusable configs: TRAIN_CONFIG holds the model/training hyperparameters, DATA_CONFIG the data mixture.
+TRAIN_CONFIG=${TRAIN_CONFIG:-projects/cluster/train_s2_kd_mtp4.yaml}
+DATA_CONFIG=${DATA_CONFIG:-projects/cluster/data_en_s2_kd.yaml}
 
+# The warm checkpoint path depends on warm_iters, which lives in TRAIN_CONFIG (single source of truth).
+WARM_ITERS=$(python -c "import yaml,sys;print(yaml.safe_load(open(sys.argv[1])).get('warm_iters',500))" "${TRAIN_CONFIG}")
 WARM_CKPT="${OUTPUT}/warm/checkpoints/iter_$(printf '%07d' "${WARM_ITERS}")"
 
+# Hyperparameters (KD + MTP + optimizer + parallelism) come from TRAIN_CONFIG; only the run-specific
+# data, init paths, phase and output are passed on the CLI.
 COMMON_ARGS=(
-  --s2-kd
+  --train-config-yaml "${TRAIN_CONFIG}"
   --hf-path "${S1_HF}"
-  --streaming-config-yaml "${DATA_YAML}"
-  --activation-recompute
-  --tensor-model-parallel-size "${TP}" --pipeline-model-parallel-size "${PP}"
-  --global-batch-size "${GLOBAL_BSZ}" --micro-batch-size "${MICRO_BSZ}" --seq-length "${SEQ_LEN}"
-  --save-interval "${SAVE_INTERVAL}" --lr "${LR}" --lr-warmup-iters "${LR_WARMUP}"
-  --mtp-num-hidden-layers 4 --mtp-loss-weight 1.0 --mtp-distillation-weight 0.75
-  --mtp-loss-depth-weights 0.50 0.25 0.15 0.10
-  --distillation-weight 0.75 --distillation-temperature 2.0 --distillation-kl-chunk-size 128
-  --log-interval "${LOG_INTERVAL}"
+  --streaming-config-yaml "${DATA_CONFIG}"
 )
 
 # Phase 1 (warm): init the projector + MTP heads from the stage-1 checkpoint.
 python examples/models/speech_cascades/finetune.py \
   "${COMMON_ARGS[@]}" \
-  --kd-phase warm --warm-iters "${WARM_ITERS}" \
+  --kd-phase warm \
   --pretrained-checkpoint "${S1_CKPT}" \
   --output-dir "${OUTPUT}" --name warm
 
 # Phase 2 (full): initialize from the warm checkpoint (weights only; optimizer / step reset).
 python examples/models/speech_cascades/finetune.py \
   "${COMMON_ARGS[@]}" \
-  --kd-phase full --full-iters "${FULL_ITERS}" \
+  --kd-phase full \
   --init-checkpoint "${WARM_CKPT}" \
   --output-dir "${OUTPUT}" --name full
