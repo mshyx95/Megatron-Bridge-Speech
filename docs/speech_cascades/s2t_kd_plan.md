@@ -224,7 +224,7 @@ WP0 (done)
 | WP0 | KL distillation loss | DONE |
 | WP-A1 | Teacher text-forward data path | DONE (baee76825) |
 | WP-A2 | Dual-forward KD loss in step | DONE (4cf2bad1d) |
-| WP-A3 | S2 KD recipe + smoke | TODO |
+| WP-A3 | S2 KD recipe + smoke | CODE DONE (df93dd852); M1 smoke BLOCKED — bridge lacks mtp.* mapping (init-from-first params absent from HF ckpt -> strict conversion aborts) |
 | WP-B1 | S2 KD data spec | DONE (2caccc3c8) |
 | WP-C1 | MTP depth heads on the model (REQUIRED) | DONE (eefa9f759) |
 | WP-C2 | MTP per-depth KL+CE loss (REQUIRED) | DONE (c332d075e) |
