@@ -32,7 +32,10 @@
   `mtp_num_hidden_layers` (=4) multi-token-prediction depth heads (extra decoder layers, init-from-first).
   The loss adds, over depths k=1..D, `depth_loss = (1-mtp_w)*depth_ce + mtp_w*depth_kl*T^2` weighted by
   `mtp_loss_depth_weights` ([0.50,0.25,0.15,0.10]) and scaled by `mtp_loss_weight` (=1.0), with
-  `mtp_distillation_weight (mtp_w) = 0.75`. Training is 2-phase: warm (~500 steps) then full (~4000
+  `mtp_distillation_weight (mtp_w) = 0.75`. **The MTP depth KL is self-distillation**: the teacher
+  target for each depth is the student's own detached main-path hidden `h^0` (shifted by depth), NOT
+  the text-teacher forward (verified against the reference ~lines 3005-3020); the `T^2` factor applies
+  to the MTP KL only, not the main-path KL. Training is 2-phase: warm (~500 steps) then full (~4000
   steps), MTP heads initialized from the first layer (`mtp_init_extra_layers_from_first`).
 
 **Evals**: OpenASR WER (DONE). Remaining: BigBench-Audio (BBH, GPT-4.1 judge), VoiceBench (9-task
@@ -220,11 +223,11 @@ WP0 (done)
 | --- | --- | --- |
 | WP0 | KL distillation loss | DONE |
 | WP-A1 | Teacher text-forward data path | DONE (baee76825) |
-| WP-A2 | Dual-forward KD loss in step | TODO |
+| WP-A2 | Dual-forward KD loss in step | DONE (4cf2bad1d) |
 | WP-A3 | S2 KD recipe + smoke | TODO |
 | WP-B1 | S2 KD data spec | DONE (2caccc3c8) |
 | WP-C1 | MTP depth heads on the model (REQUIRED) | DONE (eefa9f759) |
-| WP-C2 | MTP per-depth KL+CE loss (REQUIRED) | TODO |
+| WP-C2 | MTP per-depth KL+CE loss (REQUIRED) | DONE (c332d075e) |
 | WP-D1 | BBH judge eval | TODO |
 | WP-D2 | VoiceBench eval | TODO |
 | WP-D3 | BFCL eval | TODO |
