@@ -44,6 +44,17 @@ class SpeechCascadesModelProvider(GPTModelProvider):
 
     freeze_language_model: bool = False
     freeze_audio_model: bool = False
+    # Freeze only the audio encoder (Conformer), leaving the projector trainable. Used by the
+    # stage-2 KD recipe, which trains the projector + MTP heads with the encoder + LLM frozen.
+    freeze_audio_encoder: bool = False
+
+    # --- Knowledge distillation (stage-2 S2T) ---
+    # Off by default so the ASR path is unaffected; the KD forward in ``step.py`` is gated on the
+    # presence of teacher tensors in the batch, and reads these hyperparameters off the config.
+    knowledge_distillation: bool = False
+    distillation_weight: float = 0.75
+    distillation_temperature: float = 2.0
+    distillation_kl_chunk_size: int = 128
 
     # --- Multi-token prediction (MTP) depth heads ---
     # All default off/0 so the ASR path is byte-identical when MTP is disabled.
@@ -90,9 +101,10 @@ class SpeechCascadesModelProvider(GPTModelProvider):
             post_process=True if post_process is None else post_process,
             vp_stage=vp_stage,
         )
-        if self.freeze_language_model or self.freeze_audio_model:
+        if self.freeze_language_model or self.freeze_audio_model or self.freeze_audio_encoder:
             model.freeze(
                 freeze_language_model=self.freeze_language_model,
                 freeze_audio_model=self.freeze_audio_model,
+                freeze_audio_encoder=self.freeze_audio_encoder,
             )
         return model
