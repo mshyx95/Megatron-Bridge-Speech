@@ -28,7 +28,12 @@
 - **S2 KD (this plan)** — freeze encoder (from S1), train the projector (Proj20M or MLP), loss = KL+CE.
   Config keys: `knowledge_distillation: true`, `distillation_weight: 0.75`. Data mixture spans
   transcription / direct-response / speech-continuation formats.
-- **MTP (optional, later)** — multi-token-prediction depth heads with per-depth KL (`mtp_*` keys).
+- **MTP (REQUIRED)** — the target S2 config is `proj20m-p1-mtp4-kd`: the model carries
+  `mtp_num_hidden_layers` (=4) multi-token-prediction depth heads (extra decoder layers, init-from-first).
+  The loss adds, over depths k=1..D, `depth_loss = (1-mtp_w)*depth_ce + mtp_w*depth_kl*T^2` weighted by
+  `mtp_loss_depth_weights` ([0.50,0.25,0.15,0.10]) and scaled by `mtp_loss_weight` (=1.0), with
+  `mtp_distillation_weight (mtp_w) = 0.75`. Training is 2-phase: warm (~500 steps) then full (~4000
+  steps), MTP heads initialized from the first layer (`mtp_init_extra_layers_from_first`).
 
 **Evals**: OpenASR WER (DONE). Remaining: BigBench-Audio (BBH, GPT-4.1 judge), VoiceBench (9-task
 macro), BFCL (function-call micro), Fleurs (translation BLEU).
@@ -39,6 +44,8 @@ macro), BFCL (function-call micro), Fleurs (translation BLEU).
 | --- | --- |
 | KL + CE forward, teacher path | `phyagi/models/qwen3_5/modeling_qwen3_5.py` (`~1556-1663` main; `~2814-2960` MTP) |
 | KL / CE loss fns | same file `1228 fused_cross_entropy_loss`, `1245 chunked_kl_divergence` |
+| MTP heads + per-depth loss | same file `1681 Qwen3_5MultiTokenPredictor`, `1814 Qwen3_5MTP`, forward `~2930-3025`; config keys `mtp_*` at `configuration_qwen3_5.py:107-123` |
+| MTP4 KD config (warm->full) | `.../cascade_encoder_stage2/qwen3-5-4b-s2-proj20m-p1-mtp4-kd-{warm500,full4000}.yaml` |
 | S2 KD config | `scripts/train/configs/phi3_audio/cascade_encoder_stage2/qwen3-5-4b-s2-projmlp-phi4mm-full-kl075-ce025.yaml` (and `*-proj20m-*-kd-*.yaml`) |
 | Teacher-text data build | `phyagi/datasets/**` (blob_chunk_alm ALM collator; transcript span alignment) |
 | OpenASR eval (done) | `scripts/audio_eval/run_openasr_text_qwen35.py` |
@@ -94,8 +101,9 @@ Status legend: TODO / WIP / DONE / BLOCKED. "Parallel group" = WPs with no unmet
 - **Deps**: WP0 + WP-A1. **Owner**: subagent A (after A1).
 - **Scope**: in `step.py`, run student forward (speech) -> response hidden; run teacher forward (frozen
   LLM, `torch.no_grad()`, text `decoder_input`) -> response hidden; assert response-label alignment;
-  `loss = distillation_loss(chunked_kl_divergence(...), ce, w)`. Reuse the memory-safe output-head
-  projection (`shared_embedding_or_output_weight`) as `logits_fn`.
+  main `loss = distillation_loss(chunked_kl_divergence(...), ce, w)`. Reuse the memory-safe output-head
+  projection (`shared_embedding_or_output_weight`) as `logits_fn`. The **total** training loss also adds
+  the MTP term from WP-C2 (`loss += mtp_loss_weight * mtp_loss`).
 - **Files**: `step.py`, small helper in `model.py` to expose a text-only forward returning hidden states.
 - **Impl notes**: teacher forward must NOT build gradients; both forwards share the frozen LM weights;
   student gradients flow to the projector/encoder only. Keep the CE identical to the current ASR CE
@@ -106,11 +114,13 @@ Status legend: TODO / WIP / DONE / BLOCKED. "Parallel group" = WPs with no unmet
   2. Gated functional (real 4.3B, env-guarded): KD step-zero loss is finite and `~= CE` when
      `w -> 0`; `~= pure-KL` when `w -> 1`; teacher path detached (no grad on LM).
 
-### WP-A3 — S2 KD recipe + CLI + cluster yaml + local smoke
-- **Deps**: WP-A2 + WP-B1. **Owner**: subagent A (after A2/B1).
-- **Scope**: new recipe `speech_cascades_s2_kd_config` (freeze encoder+LLM, train projector; loss=KD)
-  with `distillation_weight`, `distillation_temperature`, `distillation_kl_chunk_size`; `finetune.py`
-  flags; cluster wrapper + amlt yaml pointing at the S2 data (WP-B1) and the S1 checkpoint as init.
+### WP-A3 — S2 KD+MTP recipe + CLI + cluster yaml + local smoke
+- **Deps**: WP-A2 + WP-C2 + WP-B1. **Owner**: subagent A (after A2/C2/B1).
+- **Scope**: new recipe `speech_cascades_s2_kd_config` (freeze encoder+LLM, train projector + MTP heads;
+  loss = KD + MTP) with `distillation_weight`, `distillation_temperature`, `distillation_kl_chunk_size`,
+  `mtp_num_hidden_layers=4`, `mtp_loss_weight=1.0`, `mtp_loss_depth_weights=[0.50,0.25,0.15,0.10]`,
+  `mtp_distillation_weight=0.75`; **2-phase** warm (~500) -> full (~4000, init from the warm ckpt);
+  `finetune.py` flags; cluster wrapper + amlt yaml pointing at the S2 data (WP-B1) and the S1 checkpoint.
 - **Files**: `recipes/speech_cascades/speech_cascades.py`, `examples/.../finetune.py`,
   `projects/cluster/{run_speech_cascades_s2_kd.sh, amlt_speech_cascades_s2_kd_vc02.yaml}`.
 - **Acceptance**:
@@ -131,15 +141,31 @@ Status legend: TODO / WIP / DONE / BLOCKED. "Parallel group" = WPs with no unmet
      has the expected student + teacher keys.
   2. Group weights/filters match the reference S2 config (documented diff table in the PR).
 
-### WP-C1 — MTP heads + per-depth KL (optional, later)
-- **Deps**: WP0. **Owner**: subagent C (independent architecture track).
-- **Scope**: add multi-token-prediction depth heads to the provider/model; per-depth KL
-  (`depth_kl * T^2`) + CE with `mtp_loss_depth_weights`; keys `mtp_loss_weight`,
-  `mtp_num_hidden_layers`, `mtp_distillation_weight`, `mtp_loss_depth_weights`.
-- **Files**: `provider.py`, `model.py`, `step.py`, tests.
-- **Acceptance**: model builds with MTP heads (param count matches expected); per-depth loss computes;
-  unit test on head shapes + depth weighting; gated functional step-zero MTP loss finite.
-- **Note**: architecture change — schedule AFTER A/B land; keep behind a config flag (default off).
+### WP-C1 — MTP depth heads on the model (REQUIRED)
+- **Deps**: none (parallel with A1/B1). **Owner**: subagent C.
+- **Scope**: add `mtp_num_hidden_layers` (=4) multi-token-prediction depth heads to the
+  SpeechCascadesModel/provider — extra decoder layers predicting tokens at depths k=1..D, each
+  producing a per-depth hidden state; init from the first layer (`mtp_init_extra_layers_from_first`).
+  Config keys on the provider: `mtp_num_hidden_layers`, `mtp_loss_weight`, `mtp_loss_depth_weights`,
+  `mtp_distillation_weight`, `mtp_init_extra_layers_from_first` (all default off/0 so the ASR path is
+  unaffected when MTP is disabled).
+- **Files**: `provider.py`, `model.py`, unit tests. Mirror `Qwen3_5MultiTokenPredictor` (ref 1681) +
+  the depth-block construction in `Qwen3_5MTP.__init__` (ref 1843-1885).
+- **Acceptance**:
+  1. Model builds with 4 MTP depth heads; total param count = base + D extra depth blocks (documented).
+  2. Model forward returns the D per-depth hidden states with correct shapes; ASR path byte-identical
+     when `mtp_num_hidden_layers == 0`.
+  3. Weights round-trip: MTP heads init-from-first matches the reference init; unit test on shapes.
+
+### WP-C2 — MTP per-depth KL+CE loss (REQUIRED)
+- **Deps**: WP0 + WP-C1 + WP-A1 (teacher). **Owner**: subagent C (after C1).
+- **Scope**: in `step.py`, aggregate the MTP loss over depths: `depth_loss = (1-mtp_w)*depth_ce +
+  mtp_w*depth_kl*T^2` (note the `T^2` on the MTP KL, unlike the main-path KL), weighted by
+  `mtp_loss_depth_weights` and scaled by `mtp_loss_weight`; add to the main KD loss (WP-A2).
+- **Files**: `step.py`, `distillation.py` (add an `mtp_depth_loss` helper), tests.
+- **Acceptance**: unit test — per-depth loss matches the reference formula (mocked hidden/logits);
+  depth weighting + `T^2` correct; gated functional step-zero total loss (main + MTP) finite; grad
+  flows to the trainable projector + MTP heads only.
 
 ### WP-D1 — BBH (BigBench-Audio) eval + GPT-4.1 judge
 - **Deps**: none (parallel). **Owner**: subagent D1.
@@ -168,25 +194,25 @@ Status legend: TODO / WIP / DONE / BLOCKED. "Parallel group" = WPs with no unmet
 
 ```
 WP0 (done)
-  ├── WP-A1 ──► WP-A2 ──► WP-A3
-  │                         ▲
-  WP-B1 ────────────────────┘
-  ├── WP-C1 (independent, optional)
+  ├── WP-A1 (teacher data) ─┐
+  ├── WP-C1 (MTP heads) ─────┼─► WP-A2 (main KD loss) + WP-C2 (MTP loss) ─► WP-A3 (S2 KD: proj20m+mtp4, warm->full)
+  │                          │                                                ▲
+  WP-B1 (S2 data) ───────────┴────────────────────────────────────────────────┘
   └── WP-D1 | WP-D2 | WP-D3 | WP-D4 (all independent, fully parallel)
 ```
 
-- **Wave 1 (now, parallel)**: WP-A1, WP-B1, WP-D1, WP-D2, WP-D3, WP-D4, WP-C1 (7 independent subagents).
-- **Wave 2**: WP-A2 (after A1), once B1 ready.
-- **Wave 3**: WP-A3 (after A2 + B1) -> the end-to-end KD training smoke.
+- **Wave 1 (now, parallel — 7 subagents)**: WP-A1, WP-C1, WP-B1, WP-D1, WP-D2, WP-D3, WP-D4.
+- **Wave 2**: WP-A2 (needs A1) + WP-C2 (needs C1 + A1), once teacher path lands.
+- **Wave 3**: WP-A3 (needs A2 + C2 + B1) -> the end-to-end KD+MTP training smoke.
+- MTP (C1/C2) is on the **critical path** for A3 (the target config is `proj20m-p1-mtp4-kd`).
 
 ## 6. Milestones / acceptance gates
 
-- **M1 — KD trains**: WP-A1+A2+A3+B1 -> local 2-step KD smoke green + short cluster KD run with loss
-  decreasing.
-- **M2 — KD quality**: full S2 KD run + OpenASR (done infra) + WP-D1/D2 evals; compare to
-  `S2T_COMPARE_RESULTS.md` targets.
+- **M1 — KD+MTP trains**: WP-A1+C1+A2+C2+A3+B1 -> local 2-step KD+MTP smoke green (main + per-depth
+  MTP loss finite/decreasing, 0 nan) + short cluster warm run with loss decreasing.
+- **M2 — KD quality**: full 2-phase (warm->full) S2 KD run + OpenASR (done infra) + WP-D1/D2 evals;
+  compare to `S2T_COMPARE_RESULTS.md` targets.
 - **M3 — Full eval suite**: WP-D1..D4 all green on cluster.
-- **M4 — MTP (optional)**: WP-C1 behind a flag, functional step-zero validated.
 
 ## 7. Status
 
@@ -197,7 +223,8 @@ WP0 (done)
 | WP-A2 | Dual-forward KD loss in step | TODO |
 | WP-A3 | S2 KD recipe + smoke | TODO |
 | WP-B1 | S2 KD data spec | TODO |
-| WP-C1 | MTP heads + per-depth KL | TODO (optional) |
+| WP-C1 | MTP depth heads on the model (REQUIRED) | TODO |
+| WP-C2 | MTP per-depth KL+CE loss (REQUIRED) | TODO |
 | WP-D1 | BBH judge eval | TODO |
 | WP-D2 | VoiceBench eval | TODO |
 | WP-D3 | BFCL eval | TODO |
