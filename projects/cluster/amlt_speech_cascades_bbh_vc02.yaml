@@ -1,0 +1,69 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# BigBench-Audio (BBH) speech-to-text eval of a native Megatron-Bridge speech-cascades checkpoint on
+# Singularity (aiservices-vc02-eu2 / eus2). Mirrors amlt_speech_cascades_openasr_vc02.yaml: one node,
+# data-parallel across 8 GPUs, load-once greedy decode of the BBH manifest -> predictions.json +
+# judge_input.json. The GPT-4.1 CORRECT/INCORRECT accuracy runs in-job only when the Azure OpenAI
+# endpoint + credentials are provided as secrets (never hardcode keys here).
+
+description: yuxuanhu_s2s_qwen bridge 4B EN-ASR s1 BigBench-Audio GPT-4.1 judge eval (VC02)
+
+env_defaults:
+  NODES: 1
+  SKU: 80G8-H100-IB-NvLink
+  sla_tier: standard
+  TARGET: aiservices-vc02-eu2
+  IMAGE: jing-dev:mega_torch210-bridge-speech-train2
+  JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-bbh
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2
+  CHECKPOINT_ITER: 12000
+  MANIFEST: /datablob1/users/ruchaofan/Evaluation/BigBenchAudio/manifest.jsonl
+
+target:
+  service: sing
+  name: ${TARGET}
+  workspace_name: aiservices-prod-ws02-eus2
+
+environment:
+  registry: speechllmregistry.azurecr.io
+  image: ${IMAGE}
+
+storage:
+  output:
+    storage_account_name: tsstd01eus2
+    container_name: amulet
+  model_blob:
+    storage_account_name: tsstd01eus2
+    container_name: data
+    mount_dir: /modelblob
+  data_blob:
+    storage_account_name: highperf01eus2
+    container_name: data
+    mount_dir: /datablob1
+
+code:
+  local_dir: $CONFIG_DIR/../..
+
+jobs:
+  - name: ${JOB_NAME}
+    sku: ${NODES}x${SKU}
+    sla_tier: ${sla_tier}
+    priority: high
+    mpi: True
+    process_count_per_node: 8
+    command:
+      - nvidia-smi
+      - export OUTPUT=${OUTPUT}
+      - export CHECKPOINT_ITER=${CHECKPOINT_ITER}
+      - export MANIFEST=${MANIFEST}
+      # Export AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_API_KEY (or _BEARER_TOKEN) / AZURE_OPENAI_DEPLOYMENT
+      # via amlt secrets to enable the in-job GPT-4.1 judge; otherwise only judge_input.json is written.
+      - bash projects/cluster/run_speech_cascades_bbh.sh
+    submit_args:
+      container_args:
+        SHARED_MEMORY_PERCENT: 0.5
+      env:
+        NCCL_DEBUG: "INFO"
+        _AZUREML_SINGULARITY_JOB_UAI: aiservices-training-c02-uai-eus2
+    identity: managed
