@@ -35,16 +35,17 @@ DATA_DIR=${DATA_DIR:-/datablob1/users/ruchaofan/Evaluation/OpenASR/esb-datasets-
 TOKENIZER=${TOKENIZER:-/datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-128}
 
-STAGE1_HF=${STAGE1_HF:-${OUTPUT}/stage1_hf}
-CKPT_DIR=$(printf "%s/run/checkpoints/iter_%07d" "${OUTPUT}" "${CHECKPOINT_ITER}")
-RESULT_DIR=${OUTPUT}/eval_output/openasr_iter${CHECKPOINT_ITER}
+# Model to evaluate: set MODEL_HF + MODEL_CKPT to eval any model; they default to the OUTPUT+ITER layout.
+MODEL_HF=${MODEL_HF:-${OUTPUT}/stage1_hf}
+MODEL_CKPT=${MODEL_CKPT:-$(printf "%s/run/checkpoints/iter_%07d" "${OUTPUT}" "${CHECKPOINT_ITER}")}
+RESULT_DIR=${RESULT_DIR:-${OUTPUT}/eval_output/openasr_iter${CHECKPOINT_ITER}}
 mkdir -p "${RESULT_DIR}"
 
 # One process loads the 4.3B model once and evaluates every subset (avoids the per-subset model
 # reload + NCCL re-init that tripped the init timeout). ami/gigaspeech get a 1s floor internally.
 python examples/models/speech_cascades/eval_openasr.py \
-  --hf-path "${STAGE1_HF}" \
-  --checkpoint "${CKPT_DIR}" \
+  --hf-path "${MODEL_HF}" \
+  --checkpoint "${MODEL_CKPT}" \
   --data-dir "${DATA_DIR}" \
   --subsets librispeech-clean librispeech-other earnings22 spgispeech ami gigaspeech \
   --tokenizer "${TOKENIZER}" \

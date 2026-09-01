@@ -33,9 +33,10 @@ AUDIO_ROOT=${AUDIO_ROOT:-}
 TOKENIZER=${TOKENIZER:-/datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-2048}
 
-STAGE1_HF=${STAGE1_HF:-${OUTPUT}/stage1_hf}
-CKPT_DIR=$(printf "%s/run/checkpoints/iter_%07d" "${OUTPUT}" "${CHECKPOINT_ITER}")
-RESULT_DIR=${OUTPUT}/eval_output/bbh_iter${CHECKPOINT_ITER}
+# Model to evaluate: set MODEL_HF + MODEL_CKPT to eval any model; they default to the OUTPUT+ITER layout.
+MODEL_HF=${MODEL_HF:-${OUTPUT}/stage1_hf}
+MODEL_CKPT=${MODEL_CKPT:-$(printf "%s/run/checkpoints/iter_%07d" "${OUTPUT}" "${CHECKPOINT_ITER}")}
+RESULT_DIR=${RESULT_DIR:-${OUTPUT}/eval_output/bbh_iter${CHECKPOINT_ITER}}
 mkdir -p "${RESULT_DIR}"
 
 AUDIO_ROOT_ARG=()
@@ -46,8 +47,8 @@ fi
 # One process loads the 4.3B model once and answers every BBH utterance (avoids the per-run model
 # reload + NCCL re-init that tripped the init timeout). Writes predictions.json + judge_input.json.
 python examples/models/speech_cascades/eval_bbh.py \
-  --hf-path "${STAGE1_HF}" \
-  --checkpoint "${CKPT_DIR}" \
+  --hf-path "${MODEL_HF}" \
+  --checkpoint "${MODEL_CKPT}" \
   --manifest "${MANIFEST}" \
   "${AUDIO_ROOT_ARG[@]}" \
   --tokenizer "${TOKENIZER}" \
