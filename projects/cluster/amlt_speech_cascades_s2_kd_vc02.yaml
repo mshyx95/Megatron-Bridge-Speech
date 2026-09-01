@@ -19,16 +19,9 @@ env_defaults:
   OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-mtp4-torch210
   S1_HF: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/stage1_hf
   S1_CKPT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v3/run/checkpoints/iter_0012000
-  DATA_YAML: projects/cluster/data_en_s2_kd.yaml
-  WARM_ITERS: 500
-  FULL_ITERS: 4000
-  SAVE_INTERVAL: 500
-  GLOBAL_BSZ: 64
-  MICRO_BSZ: 1
-  SEQ_LEN: 8192
-  LR: 4.0e-5
-  LR_WARMUP: 100
-  LOG_INTERVAL: 10
+  # Reusable configs: swap DATA_CONFIG to change the data mixture; edit TRAIN_CONFIG for hyperparameters.
+  TRAIN_CONFIG: projects/cluster/train_s2_kd_mtp4.yaml
+  DATA_CONFIG: projects/cluster/data_en_s2_kd.yaml
 
 target:
   service: sing
@@ -67,16 +60,8 @@ jobs:
       - export OUTPUT=${OUTPUT}
       - export S1_HF=${S1_HF}
       - export S1_CKPT=${S1_CKPT}
-      - export DATA_YAML=${DATA_YAML}
-      - export WARM_ITERS=${WARM_ITERS}
-      - export FULL_ITERS=${FULL_ITERS}
-      - export SAVE_INTERVAL=${SAVE_INTERVAL}
-      - export GLOBAL_BSZ=${GLOBAL_BSZ}
-      - export MICRO_BSZ=${MICRO_BSZ}
-      - export SEQ_LEN=${SEQ_LEN}
-      - export LR=${LR}
-      - export LR_WARMUP=${LR_WARMUP}
-      - export LOG_INTERVAL=${LOG_INTERVAL}
+      - export TRAIN_CONFIG=${TRAIN_CONFIG}
+      - export DATA_CONFIG=${DATA_CONFIG}
       - bash projects/cluster/run_speech_cascades_s2_kd.sh
     submit_args:
       container_args:
