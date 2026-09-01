@@ -12,6 +12,10 @@ from transformers import PreTrainedTokenizerBase
 from transformers import AutoTokenizer 
 
 from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.transforms.utils import pad_features
+from megatron.bridge.data.speech_chunk.teacher_text import (
+    build_teacher_text_example,
+    collate_teacher_text_examples,
+)
 
 
 @dataclass
@@ -146,6 +150,7 @@ class ALMDataDynamicCollator(LMDataCollator):
     )
     audio_key: Optional[str] = field(default='input_embeds', metadata={"help": "Key to access audio embeddings in examples."})
     padding_mask: Optional[bool] = field(default=False, metadata={"help": "Whether to apply padding mask to the entire sequence."})
+    knowledge_distillation: Optional[bool] = field(default=False, metadata={"help": "Emit the teacher text batch when every example carries transcript_ids."})
 
     def __post_init__(self) -> None:
         self.ignore_token_ids = None
@@ -391,8 +396,34 @@ class ALMDataDynamicCollator(LMDataCollator):
             batch['spkid'] = spkid_label.long()
             batch['spkid_lens'] = torch.tensor(spkid_label_lens).long()
 
+        if self.knowledge_distillation:
+            self._add_teacher_batch(examples, batch)
+
         self._maybe_dump_inputs(examples, batch)
         return batch
+
+    def _add_teacher_batch(
+        self,
+        examples: List[Dict[str, torch.LongTensor]],
+        batch: Dict[str, torch.LongTensor],
+    ) -> None:
+        """Attach the teacher text batch when every example carries ``transcript_ids``."""
+        present = ["transcript_ids" in e for e in examples]
+        if not any(present):
+            return
+        if not all(present):
+            raise ValueError(
+                "A knowledge-distillation batch cannot mix examples with and without transcript_ids: "
+                f"{sum(present)}/{len(examples)} examples have transcript_ids"
+            )
+        teacher_input_ids, teacher_labels = [], []
+        for e in examples:
+            ids, labs = build_teacher_text_example(e["input_ids"], e["labels"], e["transcript_ids"])
+            teacher_input_ids.append(ids)
+            teacher_labels.append(labs)
+        batch.update(
+            collate_teacher_text_examples(teacher_input_ids, teacher_labels, self.tokenizer.pad_token_id)
+        )
 
 
 def _load_tokenizer(tokenizer: Union[PreTrainedTokenizerBase, str, Dict[str, Any]]) -> PreTrainedTokenizerBase:

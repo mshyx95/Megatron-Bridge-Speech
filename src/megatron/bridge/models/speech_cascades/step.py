@@ -71,7 +71,7 @@ def get_alm_batch(data_iterator: Iterable) -> dict[str, Any]:
         # Log-mel features arrive as float32; match the bf16 audio encoder weights.
         audio_features = audio_features.to(torch.bfloat16)
 
-    return {
+    out = {
         "input_ids": input_ids,
         "labels": model_labels,
         "loss_mask": loss_mask,
@@ -79,6 +79,23 @@ def get_alm_batch(data_iterator: Iterable) -> dict[str, Any]:
         "audio_attention_mask": _to_cuda(batch.get("audio_attention_mask")),
         "audio_embed_sizes": _to_cuda(batch.get("audio_embed_sizes")),
     }
+    _add_teacher_tensors(batch, out)
+    return out
+
+
+def _add_teacher_tensors(batch: dict[str, Any], out: dict[str, Any]) -> None:
+    """Move KD teacher tensors (when present) to the current device, leaving the ASR path untouched.
+
+    Keys are only added when the collator produced them (``knowledge_distillation`` enabled), so the
+    non-KD batch dict is byte-identical to the ASR path. ``teacher_input_ids`` / ``teacher_labels`` are
+    ``long`` and ``teacher_attention_mask`` is ``bool``; dtypes are preserved by the device move.
+    """
+    teacher_input_ids = batch.get("teacher_input_ids")
+    if teacher_input_ids is None:
+        return
+    out["teacher_input_ids"] = _to_cuda(teacher_input_ids)
+    out["teacher_labels"] = _to_cuda(batch.get("teacher_labels"))
+    out["teacher_attention_mask"] = _to_cuda(batch.get("teacher_attention_mask"))
 
 
 def forward_step(
