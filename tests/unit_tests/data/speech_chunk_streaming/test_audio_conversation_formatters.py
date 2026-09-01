@@ -93,3 +93,21 @@ def test_continuation_style_teacher_alignment():
     assert torch.equal(teacher_ids, torch.tensor([91, 92, 500, 501, 500, 501]))
     assert torch.equal(teacher_labels[-2:], torch.tensor([500, 501]))
 
+
+def test_ast_cot_teacher_uses_transcript_before_sep():
+    # ast-cot response = {transcript}<sep>{translation}; the teacher transcript is the pre-<sep> part.
+    IGN = -100
+    SEP = [98, 99]  # synthetic tokenization of "<sep>"
+    # <audio x2>, transcript[10, 11], <sep>[98, 99], translation[12, 13]
+    input_ids = torch.tensor([-1, -1, 10, 11, 98, 99, 12, 13])
+    labels = torch.tensor([IGN, IGN, 10, 11, 98, 99, 12, 13])
+
+    # Without the separator the whole response (incl. translation) would be taken.
+    full = derive_transcript_ids(input_ids, labels)
+    assert torch.equal(full[0], torch.tensor([10, 11, 98, 99, 12, 13]))
+
+    # With the separator only the source transcript is kept.
+    transcripts = derive_transcript_ids(input_ids, labels, separator_ids_variants=[SEP])
+    assert torch.equal(transcripts[0], torch.tensor([10, 11]))
+
+
