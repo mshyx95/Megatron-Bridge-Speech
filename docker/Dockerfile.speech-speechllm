@@ -1,0 +1,71 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Speech-cascades training image built on the maintained `speechllm:latest` base (a security-scanned
+# NGC-derived speech image: torch 2.12 / TE 2.15 / apex / flash-attn / triton 3.7, Ubuntu 24.04,
+# Python 3.12). Replaces the ad-hoc jing-dev image (which was removed by a registry security cleanup).
+#
+# The bridge treats torch/TE/apex/flash-attn as system packages (uv.lock marks them
+# `sys_platform == 'never'`), so we reuse the base's compiled CUDA stack via
+# `uv venv --system-site-packages` and only `uv sync` the pure-Python deps + audio + te extras. This
+# deliberately skips the MoE/EP/SSM CUDA libraries (DeepEP, HybridEP, mamba-ssm, flash-mla) that a
+# dense Qwen3.5 + audio-encoder model does not need.
+
+ARG BASE_IMAGE=speechllmregistry.azurecr.io/speechllm:latest
+FROM ${BASE_IMAGE} AS speech_speechllm
+
+ARG UV_VERSION=0.9.17
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+WORKDIR /opt/Megatron-Bridge
+
+# The base ships no uv; install a pinned uv for reproducible dependency resolution.
+RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh && \
+    install -m 0755 /root/.local/bin/uv /usr/local/bin/uv
+
+COPY . .
+
+# Reuse the base image's compiled torch/TE/apex/flash-attn via --system-site-packages; install only
+# the core deps + audio extra, then the editable MCore submodule. We deliberately do NOT request the
+# `te` extra: that would rebuild a pinned TransformerEngine commit from source (20-40 min, and risky
+# against this newer torch), whereas the base already ships a working TransformerEngine 2.15 that
+# MCore imports as `transformer_engine.pytorch`. uv does NOT install torch (uv.lock:
+# `sys_platform == 'never'`), and lifts transformers into the bridge's >=5.8,<=5.12.1 range and mlflow
+# to >=3.15.1 (CVE-2025-15031) over the base's older pins. TMS_CUDA_MAJOR is required to build
+# torch-memory-saver (a core dep) against CUDA.
+RUN export TMS_CUDA_MAJOR="$("${CUDA_HOME:-/usr/local/cuda}"/bin/nvcc --version | sed -n 's/.*release \([0-9][0-9]*\).*/\1/p' | head -1)" && \
+    test -n "$TMS_CUDA_MAJOR" && \
+    uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages && \
+    uv sync --locked --no-install-project --extra audio && \
+    uv pip install --no-deps --reinstall -e 3rdparty/Megatron-LM && \
+    uv cache prune --ci || true
+
+# Speech runtime + eval extras not carried in the bridge project deps.
+#  - soundfile/whisper_normalizer/kaldialign/editdistance: OpenASR eval + feature IO
+#  - blobfile/azure-storage-blob/azure-identity/backoff/unidecode/natsort: vendored
+#    streaming ASR data pipeline (blob_chunk_alm) that reads DataSpec chunks from Azure
+#    blob mounts. (WhisperProcessor's `openai-whisper` dep is imported lazily and unused
+#    on the LogFbank ASR path, so it is intentionally not installed here.)
+#  - tilelang: fla's alternate GDN (gated delta net) backward backend. This base ships
+#    Triton 3.7.0, still below the 3.7.1 that fla requires on Hopper for the gated chunk_bwd
+#    kernel; tilelang provides a correct fallback without disturbing torch's pinned Triton.
+RUN uv pip install --python ${UV_PROJECT_ENVIRONMENT}/bin/python \
+        soundfile whisper_normalizer kaldialign editdistance \
+        blobfile azure-storage-blob azure-identity backoff unidecode natsort \
+        tilelang
+
+# AzureML MLflow tracking-store plugin so obs_logging's mlflow.log_metrics reaches the
+# AzureML-managed run (metrics tab). Installed with --no-deps: every released azureml-mlflow caps
+# mlflow-skinny<3.14, but the bridge pins mlflow>=3.15.1 (CVE-2025-15031); --no-deps keeps the
+# synced mlflow intact while still registering the `azureml://` store plugin. Its azureml runtime
+# deps are added explicitly.
+RUN uv pip install --python ${UV_PROJECT_ENVIRONMENT}/bin/python --no-deps azureml-mlflow && \
+    uv pip install --python ${UV_PROJECT_ENVIRONMENT}/bin/python \
+        azureml-core azure-common azure-mgmt-core jsonpickle msrest oauthlib requests-oauthlib
+
+# Empty overlay marker so the cluster wrapper (run_speech_cascades_stage1.sh) skips its runtime pip
+# bootstrap: transformers / nvidia-resiliency-ext are already baked in, and the bootstrap would
+# otherwise DOWNGRADE transformers and break the stack.
+RUN mkdir -p /opt/bridge-overlay && touch /opt/bridge-overlay/.done
+
+ENV PATH="/opt/venv/bin:${PATH}"
+ENV PYTHONPATH="/opt/Megatron-Bridge/src:/opt/Megatron-Bridge/3rdparty/Megatron-LM"
