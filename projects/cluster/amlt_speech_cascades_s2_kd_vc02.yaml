@@ -15,7 +15,7 @@ env_defaults:
   SKU: 80G8-H100-IB-NvLink
   sla_tier: standard
   TARGET: aiservices-vc02-eu2
-  IMAGE: jing-dev:mega_torch210-bridge-speech-train2
+  IMAGE: megatron-bridge-speech:dev-yuxuanhu-s2s_qwen_dev-636166
   JOB_NAME: qwen3-5-4b-s2-kd-3way-projonly-torch210
   OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-3way-projonly-torch210
   # From scratch: build the HF from base Qwen3.5 + the cascades encoder (random projector); no stage-1.

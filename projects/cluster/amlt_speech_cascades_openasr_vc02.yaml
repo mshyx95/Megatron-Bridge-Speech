@@ -13,7 +13,7 @@ env_defaults:
   SKU: 80G8-H100-IB-NvLink
   sla_tier: standard
   TARGET: aiservices-vc02-eu2
-  IMAGE: jing-dev:mega_torch210-bridge-speech-train2
+  IMAGE: megatron-bridge-speech:dev-yuxuanhu-s2s_qwen_dev-636166
   JOB_NAME: qwen3-5-4b-en-asr-s1-torch210-openasr
   # Swap MODEL_HF + MODEL_CKPT to evaluate a different model; RESULT_DIR is where scores are written.
   MODEL_HF: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/en-asr-s1-torch210-full-v2/stage1_hf
