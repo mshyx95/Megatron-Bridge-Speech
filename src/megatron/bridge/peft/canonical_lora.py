@@ -30,6 +30,7 @@ from megatron.bridge.peft.utils import (
     ParallelLinearAdapter,
     align_expert_dim_for_tp,
     get_adapter_attributes_from_linear,
+    get_effective_lora_alpha,
     get_effective_lora_dim,
     is_expert_linear,
     is_grouped_expert_linear,
@@ -381,6 +382,13 @@ class CanonicalLoRA(PEFT, ModuleMatcher):
                 is_expert=is_expert,
                 input_is_parallel=attrs.input_is_parallel,
             )
+            alpha = get_effective_lora_alpha(
+                alpha=self.alpha,
+                dim=self.dim,
+                effective_dim=dim,
+                normalize_moe_lora=self.normalize_moe_lora,
+                is_expert=is_expert,
+            )
             use_per_expert_adapter = is_grouped_expert_linear(full_name) and not self.share_expert_adapters
             adapter_cls = GroupedExpertLinearAdapter if use_per_expert_adapter else ParallelLinearAdapter
 
@@ -394,7 +402,7 @@ class CanonicalLoRA(PEFT, ModuleMatcher):
                 dropout=self.dropout,
                 dropout_position=self.dropout_position,
                 model_parallel_config=m.config,
-                alpha=self.alpha,
+                alpha=alpha,
                 base_linear_is_parallel=attrs.base_linear_is_parallel,
             )
             if use_per_expert_adapter:

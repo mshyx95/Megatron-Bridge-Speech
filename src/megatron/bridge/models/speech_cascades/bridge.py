@@ -14,10 +14,10 @@
 
 """Bridge for the native Cascades speech model.
 
-Maps a converted HuggingFace-format speech checkpoint (Qwen3.5 GDN language model plus the Cascades
-audio encoder and projection) to :class:`SpeechCascadesModel`. The Qwen3.5 GDN language-model
-mappings are reused verbatim from ``Qwen35Bridge._get_dense_lm_mappings`` under a ``language_model.``
-prefix; the audio encoder and projection are copied whole via :class:`ReplicatedMapping`.
+Maps a converted HuggingFace-format speech checkpoint (Qwen3.5/Qwen3.6 GDN language model plus the
+Cascades audio encoder and projection) to :class:`SpeechCascadesModel`. Dense and MoE language-model
+mappings are reused from the corresponding Qwen3.5 bridges under a ``language_model.`` prefix; the
+audio encoder and projection are copied whole via :class:`ReplicatedMapping`.
 """
 
 import torch
@@ -25,7 +25,13 @@ import torch
 from megatron.bridge.models.conversion.mapping_registry import MegatronMappingRegistry
 from megatron.bridge.models.conversion.model_bridge import MegatronModelBridge
 from megatron.bridge.models.conversion.param_mapping import ReplicatedMapping
-from megatron.bridge.models.qwen.qwen35_bridge import Qwen35Bridge, _apply_qwen35_common_config
+from megatron.bridge.models.conversion.utils import moe_experts_stored_packed
+from megatron.bridge.models.qwen.qwen35_bridge import (
+    Qwen35Bridge,
+    Qwen35MoEBridge,
+    _apply_qwen35_common_config,
+    _apply_qwen35_moe_config,
+)
 from megatron.bridge.models.speech_cascades.model import SpeechCascadesModel
 from megatron.bridge.models.speech_cascades.provider import SpeechCascadesModelProvider
 
@@ -62,7 +68,7 @@ class SpeechCascadesBridge(MegatronModelBridge):
         provider = SpeechCascadesModelProvider(
             num_layers=config.num_hidden_layers,
             hidden_size=config.hidden_size,
-            ffn_hidden_size=config.intermediate_size,
+            ffn_hidden_size=getattr(config, "intermediate_size", getattr(config, "moe_intermediate_size", None)),
             num_attention_heads=config.num_attention_heads,
             num_query_groups=config.num_key_value_heads,
             kv_channels=getattr(config, "head_dim", config.hidden_size // config.num_attention_heads),
@@ -81,16 +87,29 @@ class SpeechCascadesBridge(MegatronModelBridge):
             audio_compression_rate=embd_layer.get("compression_rate", 1),
             audio_token_id=getattr(config, "audio_token_id", None) or _DEFAULT_AUDIO_TOKEN_ID,
         )
-        # Fill in the Qwen3.5 GDN hybrid language-model settings from the real config.
-        _apply_qwen35_common_config(provider, config)
+        # Fill in the Qwen3.5/Qwen3.6 GDN hybrid language-model settings from the real config.
+        if getattr(config, "num_experts", None):
+            _apply_qwen35_moe_config(provider, config)
+        else:
+            _apply_qwen35_common_config(provider, config)
         provider.position_embedding_type = "rope"
         provider.autocast_dtype = model_dtype
         provider.hetereogenous_dist_checkpoint = True
         return provider
 
     def mapping_registry(self) -> MegatronMappingRegistry:
-        """Qwen3.5 GDN language-model mappings plus replicated audio encoder/projection mappings."""
-        mapping_list = Qwen35Bridge._get_dense_lm_mappings(hf_prefix="model.", megatron_prefix="language_model.")
+        """Qwen3.5/Qwen3.6 language-model mappings plus replicated audio mappings."""
+        hf_pretrained = getattr(self, "hf_pretrained", None)
+        config = getattr(hf_pretrained, "config", None)
+        if getattr(config, "num_experts", None):
+            experts_packed = moe_experts_stored_packed(hf_pretrained, "model.layers.")
+            mapping_list = Qwen35MoEBridge._get_moe_lm_mappings(
+                hf_prefix="model.", megatron_prefix="language_model.", experts_packed=experts_packed
+            )
+        else:
+            mapping_list = Qwen35Bridge._get_dense_lm_mappings(
+                hf_prefix="model.", megatron_prefix="language_model."
+            )
         mapping_list.extend(
             [
                 ReplicatedMapping(

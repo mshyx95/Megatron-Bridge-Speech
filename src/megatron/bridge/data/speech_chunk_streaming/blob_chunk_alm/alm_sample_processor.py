@@ -82,6 +82,68 @@ class BlobChunkALMSampleProcessor:
         self.compute_audio_embed_size = compute_audio_embed_size
         self._sample_processing_state_cache = {}
 
+    @staticmethod
+    def _apply_sft_answer_overlay(sample: Dict[str, any]) -> Optional[Dict[str, any]]:
+        if "answer" not in sample or any(
+            key in sample for key in ("answer_audio", "answer_cv_token", "answer_cv_tokens", "label_codec")
+        ):
+            return sample
+        answer = sample["answer"]
+        if not isinstance(answer, str) or not answer.strip():
+            logger.info("Dropping SFT answer-overlay sample with an empty answer")
+            return None
+        conversations = sample.get("sft")
+        audios = sample.get("audios")
+        if not isinstance(conversations, list) or len(conversations) != 1:
+            logger.warning("Dropping SFT answer-overlay sample: expected one conversation")
+            return None
+        conversation = conversations[0]
+        messages = conversation.get("messages") if isinstance(conversation, dict) else None
+        if not isinstance(messages, list):
+            logger.warning("Dropping SFT answer-overlay sample with malformed messages")
+            return None
+        overlay_mode = conversation.get("answer_overlay_mode", "audio-only")
+        if overlay_mode not in {"audio-only", "audio-question", "text-question"}:
+            logger.warning("Dropping SFT sample with unknown answer overlay mode: %s", overlay_mode)
+            return None
+        assistant_messages = [
+            message for message in messages
+            if isinstance(message, dict) and message.get("role") == "assistant"
+        ]
+        audio_placeholders = [
+            match.group(0) for message in messages
+            if isinstance(message, dict) and message.get("role") == "user"
+            for match in re.finditer(r"<audio>|<\|audio_\d+\|>", message.get("content", ""))
+        ]
+        expected_audio_count = 0 if overlay_mode == "text-question" else 1
+        if (
+            len(assistant_messages) != 1 or len(audio_placeholders) != expected_audio_count
+            or (audios is not None and len(audios) != expected_audio_count)
+        ):
+            logger.warning(
+                "Dropping SFT answer-overlay sample: expected one assistant transcript and %d audio placeholders",
+                expected_audio_count,
+            )
+            return None
+        transcript = assistant_messages[0].get("content")
+        if not isinstance(transcript, str) or not transcript.strip():
+            logger.info("Dropping SFT answer-overlay sample with an empty transcript")
+            return None
+        if overlay_mode == "audio-only":
+            output_messages = [
+                {"role": "user", "content": audio_placeholders[0]},
+                {"role": "assistant", "content": answer.strip()},
+            ]
+        else:
+            output_messages = copy.deepcopy(messages)
+            for message in output_messages:
+                if message.get("role") == "assistant":
+                    message["content"] = answer.strip()
+        if overlay_mode != "text-question":
+            sample["audio_transcripts"] = [transcript.strip()]
+        sample["sft"] = [{"messages": output_messages}]
+        return sample
+
     def _build_text_normalizer(self, text_normalization: Optional[dict]):
         if not text_normalization:
             return None
@@ -193,9 +255,14 @@ class BlobChunkALMSampleProcessor:
 
     def prepare_multiaudio_sample(self, sample: Dict[str, any], sample_processing_state: Dict[str, any]) -> Optional[Dict[str, any]]:
         if "audios" not in sample:
+            if "sft" in sample:
+                sample = self._apply_sft_answer_overlay(sample)
             return sample
 
         assert "sft" in sample
+        sample = self._apply_sft_answer_overlay(sample)
+        if sample is None:
+            return None
         if sample_processing_state["sqa_sample"]:
             sample = generate_sqa_sample(sample, **sample_processing_state["sqa_sample"])
         if len(sample["sft"]) == 0 or len(sample["audios"]) == 0:
@@ -272,7 +339,16 @@ class BlobChunkALMSampleProcessor:
             return None
         assert "<abnormal>" not in sample["transcription"]
 
-        sample["label"] = self.tokenizer.encode(sample["transcription"], add_special_tokens=False)
+        target = sample["transcription"]
+        if "answer" in sample:
+            answer = sample["answer"]
+            if not isinstance(answer, str) or not answer.strip():
+                logger.info("Dropping transcription answer-overlay sample with an empty answer")
+                return None
+            sample["audio_transcripts"] = [sample["transcription"]]
+            sample["answer"] = answer.strip()
+            target = sample["answer"]
+        sample["label"] = self.tokenizer.encode(target, add_special_tokens=False)
         return sample
 
     def passes_sample_filters(self, sample: Dict[str, any], sample_processing_state: Dict[str, any], sample_rate: Optional[int], filter_key: Optional[str] = None) -> bool:
@@ -370,6 +446,7 @@ class BlobChunkALMSampleProcessor:
 
     def materialize_examples(self, sample: Dict[str, any], audio_frames: List[int], audio_embed_sizes: List[int], sample_processing_state: Dict[str, any]) -> List[dict]:
         examples = []
+        audio_transcripts = sample.get("audio_transcripts")
         if "single_qa" in sample:
             annotations = sample["single_qa"]
             questions, answers, scores = annotations["questions"], annotations["answer"], annotations["score"]
@@ -395,6 +472,7 @@ class BlobChunkALMSampleProcessor:
                     "audio_frames": audio_frames,
                     "audio_embed_sizes": audio_embed_sizes,
                     "language": sample["language"],
+                    "audio_transcripts": audio_transcripts,
                 })
             return examples
 
@@ -411,6 +489,7 @@ class BlobChunkALMSampleProcessor:
                     "audio_frames": audio_frames,
                     "audio_embed_sizes": audio_embed_sizes,
                     "language": sample["language"],
+                    "audio_transcripts": audio_transcripts,
                 })
             return examples
 
@@ -421,7 +500,7 @@ class BlobChunkALMSampleProcessor:
             context, _ = sample_processing_state["biasing_sampler"].sample(sample["transcription"], language=language)
         examples.append({
             "user_prompt": None,
-            "annotations": [sample["transcription"]],
+            "annotations": [sample.get("answer", sample["transcription"])],
             "label": sample["label"],
             self.final_audio_key: sample[self.final_audio_key],
             "audio_frames": audio_frames,
@@ -429,5 +508,6 @@ class BlobChunkALMSampleProcessor:
             "language": sample["language"],
             "spkid": sample.get("spkid", None),
             "context": context,
+            "audio_transcripts": audio_transcripts,
         })
         return examples

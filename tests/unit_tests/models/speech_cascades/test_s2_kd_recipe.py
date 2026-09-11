@@ -7,11 +7,14 @@ the two-phase (warm -> full) iteration / init-checkpoint wiring.
 """
 
 import importlib
+import inspect
 import os
 import sys
 import types
+from pathlib import Path
 
 import pytest
+import yaml
 
 
 torch = pytest.importorskip("torch")
@@ -54,7 +57,13 @@ def _build(monkeypatch, **kwargs):
 
 
 def test_s2_kd_recipe_builds_config_and_sets_freeze_and_kd_keys(monkeypatch):
-    cfg = _build(monkeypatch, phase="warm", load_hf_weights=True)
+    cfg = _build(
+        monkeypatch,
+        phase="warm",
+        load_hf_weights=True,
+        expert_model_parallel_size=8,
+        expert_tensor_parallel_size=1,
+    )
 
     from megatron.bridge.training.config import ConfigContainer
 
@@ -68,6 +77,8 @@ def test_s2_kd_recipe_builds_config_and_sets_freeze_and_kd_keys(monkeypatch):
     assert model.freeze_language_model is True
     assert model.freeze_audio_encoder is True
     assert model.freeze_audio_model is False
+    assert model.expert_model_parallel_size == 8
+    assert model.expert_tensor_parallel_size == 1
 
     # KD hyperparameters set explicitly (not left to step.py getattr defaults).
     assert model.knowledge_distillation is True
@@ -113,3 +124,36 @@ def test_s2_kd_train_iters_override(monkeypatch):
 def test_s2_kd_rejects_unknown_phase(monkeypatch):
     with pytest.raises(ValueError):
         _build(monkeypatch, phase="bogus", load_hf_weights=True)
+
+
+@pytest.mark.unit
+def test_b1_4b_prepared_config_is_projector_only_kl(monkeypatch):
+    root = Path(__file__).resolve().parents[4]
+    with (root / "projects/cluster/train_s2tt_b1_4b.yaml").open() as stream:
+        settings = yaml.safe_load(stream)
+    assert settings["s2_kd"] is True
+    assert settings["lora_rank"] is None
+    module = _load_recipe_module()
+    parameters = inspect.signature(module.speech_cascades_s2_kd_config).parameters
+    kwargs = {key: value for key, value in settings.items() if key in parameters}
+    kwargs["phase"] = settings["kd_phase"]
+    cfg = _build(monkeypatch, **kwargs)
+    assert cfg.peft is None
+    assert cfg.model.freeze_language_model is True
+    assert cfg.model.freeze_audio_encoder is True
+    assert cfg.model.freeze_audio_model is False
+    assert cfg.model.mtp_num_hidden_layers == 0
+    assert cfg.model.distillation_weight == 1.0
+    assert cfg.model.distillation_temperature == 2.0
+    assert cfg.model.distillation_kl_chunk_size == 128
+    assert cfg.train.train_iters == 4000
+    assert cfg.train.global_batch_size == 512
+    assert cfg.train.micro_batch_size == 1
+    assert cfg.dataset.seq_length == 8192
+    assert cfg.checkpoint.pretrained_checkpoint is None
+    assert cfg.checkpoint.save_interval == 400
+    assert cfg.optimizer.lr == 1e-4
+    assert cfg.optimizer.weight_decay == 0.01
+    assert cfg.optimizer.adam_eps == 1e-7
+    assert cfg.scheduler.lr_warmup_iters == 100
+    assert cfg.scheduler.lr_decay_style == "linear"

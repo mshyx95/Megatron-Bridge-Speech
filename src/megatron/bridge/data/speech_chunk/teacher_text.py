@@ -19,8 +19,9 @@ the student input replaced by its aligned transcript token ids. In the speech-ca
 schema the student ``input_ids`` marks the ``k``-th audio segment with the negative placeholder id
 ``-(k + 1)`` repeated ``audio_embed_sizes[k]`` times (see :mod:`.collator`). This module rewrites
 those placeholder runs into transcript tokens so the response (answer) tokens stay byte-identical
-between the two views and the per-token hidden states line up for the KL. This mirrors the
-production ``phyagi`` teacher build, which performs the same substitution at the template level.
+between the two views and the per-token hidden states line up for the KL. These utilities serve
+explicit token-level/local examples. Streaming S2TT instead constructs the teacher at the conversation
+template level and re-tokenizes it, matching the reference's token boundaries.
 """
 
 from collections.abc import Sequence
@@ -40,8 +41,9 @@ def derive_transcript_ids(
 ) -> list[torch.Tensor]:
     """Derive the per-audio-segment transcript token ids from an ASR-style example.
 
-    For the ASR / nothink (``audio-response``) / continuation (``audio-continuation``) formatters the
-    supervised assistant response *is* the reference transcript, so the supervised
+    This helper is only valid when the supervised assistant response is the source transcript.
+    Rewritten no-think and continuation answers do not satisfy that condition and must supply
+    explicit source transcripts or template-built teacher inputs instead. For ASR-style examples, the supervised
     (``labels != ignore_index``) token run that follows each audio placeholder span holds exactly the
     transcript tokens the teacher path needs to substitute for that span. Each contiguous run of the
     placeholder id ``-(k + 1)`` marks audio segment ``k``; the first supervised label run after it is

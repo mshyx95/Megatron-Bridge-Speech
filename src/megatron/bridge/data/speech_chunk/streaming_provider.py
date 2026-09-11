@@ -63,6 +63,15 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
 
         cfg = OmegaConf.to_container(OmegaConf.load(self.speech_config_yaml), resolve=True)
         entries = cfg["dataset"]
+        if cfg["dataset_collator"].get("knowledge_distillation", False):
+            for entry in entries:
+                transform = entry.get("transform_cls")
+                if (
+                    not entry.get("allow_pure_text_return", False)
+                    and isinstance(transform, dict)
+                    and transform.get("name") == "AudioTextConversationTransform"
+                ):
+                    transform.setdefault("knowledge_distillation", True)
         if self.data_spec_override:
             first = dict(entries[0])
             first["dataset_spec"] = list(self.data_spec_override)

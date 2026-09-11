@@ -172,6 +172,7 @@ class WeightedConcatIterableDataset(IterableDataset):
         self.datasets_iter: Optional[List[Iterator[Any]]] = None
 
         self.global_worker_id = 0
+        self.data_parallel_rank = 0
 
         # If all datasets are `.npy` files, adjust the weights to reflect the number of times
         self._adjust_npy_weights()
@@ -214,11 +215,14 @@ class WeightedConcatIterableDataset(IterableDataset):
         for dataset in self.datasets:
             dataset.set_rank_and_world_size(rank, world_size)
 
+        self.data_parallel_rank = rank
         self.global_worker_id = rank
-        worker_info = torch.utils.data.get_worker_info()
 
-        if worker_info is not None:
-            self.global_worker_id = rank * worker_info.num_workers + worker_info.id
+    def _get_global_worker_id(self) -> int:
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            return self.data_parallel_rank
+        return self.data_parallel_rank * worker_info.num_workers + worker_info.id
 
     def get_state(self) -> List[Dict[str, Any]]:
         return [dataset.get_state() for dataset in self.datasets]
@@ -260,7 +264,9 @@ class WeightedConcatIterableDataset(IterableDataset):
             warmup_samples[i] = next(it)
             logger.info(f"Pre-warmed dataset iterator {i}")
 
-        # Create rng based on the rank so that each rank can choose a distinct dataset
+        # DataLoader worker processes are created after set_rank_and_world_size(), so resolve the
+        # worker id here to avoid identical dataset-group choices across workers on the same rank.
+        self.global_worker_id = self._get_global_worker_id()
         rng = np.random.default_rng(self.global_worker_id)
         dataset_idx = rng.choice(len(self.weights), p=self.weights)
 

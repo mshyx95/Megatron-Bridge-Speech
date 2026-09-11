@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""One-time converter: base Qwen3.5-4B + Cascades 22L encoder -> stage-1 HuggingFace directory.
+"""One-time converter: base Qwen3.5/Qwen3.6 + Cascades 22L encoder -> stage-1 HuggingFace directory.
 
 Builds the combined ``Qwen3_5SpeechCascadesForConditionalGeneration`` HF checkpoint used to cold-start
 EN-ASR stage-1 training (LLM frozen, encoder + MLP projector trained). The language model comes from a
-base Qwen3.5-4B checkpoint (its ``model.language_model.*`` weights, flattened to ``model.*``); the
+base Qwen3.5/Qwen3.6 checkpoint (its ``model.language_model.*`` weights, flattened to ``model.*``); the
 audio encoder + CMVN come from the standalone ``checkpoint_22L`` (dropping its extra conformer block,
 decoder, and CTC head); the MLP audio projector is randomly initialized. The written ``config.json``
 flattens ``text_config`` and adds the stage-1 ``audio_processor`` (nemo_conv 23L, non-flash t5 bias)
@@ -29,6 +29,7 @@ import logging
 from collections import OrderedDict
 from pathlib import Path
 
+import numpy as np
 import torch
 from safetensors.torch import load_file, save_file
 
@@ -93,8 +94,11 @@ def _load_base_llm(base_dir: Path) -> dict[str, torch.Tensor]:
     return llm
 
 
-def _load_encoder(encoder_ckpt: Path) -> dict[str, torch.Tensor]:
-    """Map the standalone 22L encoder checkpoint into the audio-encoder prefix."""
+def _load_encoder(
+    encoder_ckpt: Path, *, num_blocks: int = _NUM_BLOCKS,
+    mean_file: Path | None = None, invstd_file: Path | None = None,
+) -> dict[str, torch.Tensor]:
+    """Map standalone encoder weights and optional reference CMVN into the audio prefix."""
     payload = torch.load(encoder_ckpt, map_location="cpu", weights_only=False)
     out: dict[str, torch.Tensor] = OrderedDict()
     for key, tensor in payload.items():
@@ -102,25 +106,44 @@ def _load_encoder(encoder_ckpt: Path) -> dict[str, torch.Tensor]:
             continue
         if key.startswith("encoder."):
             inner = key[len("encoder.") :]
-            if inner.startswith(f"encoders.{_NUM_BLOCKS}."):  # extra conformer block beyond num_blocks
+            if inner.startswith("encoders.") and int(inner.split(".")[1]) >= num_blocks:
                 continue
             out[_AUDIO_PREFIX + "encoder." + inner] = tensor.contiguous().clone()
         elif key.startswith("encoder_embedding."):  # CMVN -> nested under the encoder
             out[_AUDIO_PREFIX + "encoder.encoder_embedding." + key[len("encoder_embedding.") :]] = (
                 tensor.contiguous().clone()
             )
-    logger.info("encoder tensors mapped: %d", len(out))
+    if (mean_file is None) != (invstd_file is None):
+        raise ValueError("Both mean_file and invstd_file are required together")
+    if mean_file is not None:
+        for name, path in (("global_mean", mean_file), ("global_invstd", invstd_file)):
+            values = torch.from_numpy(np.loadtxt(path))
+            if values.shape != (80,) or not torch.isfinite(values).all():
+                raise ValueError(f"Invalid CMVN vector {name}: expected 80 finite values")
+            if name == "global_invstd" and not (values > 0).all():
+                raise ValueError("CMVN inverse standard deviations must be positive")
+            out[_AUDIO_PREFIX + "encoder.encoder_embedding." + name] = values
+    logger.info("encoder tensors mapped: %d; requested blocks: %d", len(out), num_blocks)
     return out
 
 
-def _random_projector(hidden_size: int, seed: int) -> dict[str, torch.Tensor]:
+def _random_projector(
+    hidden_size: int, seed: int, *, num_blocks: int = _NUM_BLOCKS,
+    encoder_state: dict[str, torch.Tensor] | None = None,
+) -> dict[str, torch.Tensor]:
     """Random-init the MLP audio projector matching CascadesAudioEmbedding's structure."""
     from megatron.bridge.models.speech_cascades.audio_embedding import CascadesAudioEmbedding
 
     torch.manual_seed(seed)
     audio = CascadesAudioEmbedding(
-        _STAGE1_AUDIO_CONFIG, hidden_size=hidden_size, projection_cls="mlp", compression_rate=8, downsample_rate=1
+        {**_STAGE1_AUDIO_CONFIG, "num_blocks": num_blocks},
+        hidden_size=hidden_size, projection_cls="mlp", compression_rate=8, downsample_rate=1
     )
+    if encoder_state is not None:
+        prefix = _AUDIO_PREFIX + "encoder."
+        audio.encoder.load_state_dict({key.removeprefix(prefix): value for key, value in encoder_state.items()}, strict=True)
+        logger.info("Encoder validation passed: blocks=%d, all weights and CMVN loaded", num_blocks)
+    logger.info("Random MLP parameters: %d", sum(param.numel() for param in audio.audio_projection.parameters()))
     return {
         _AUDIO_PREFIX + "audio_projection." + key: value.contiguous().clone()
         for key, value in audio.audio_projection.state_dict().items()
@@ -150,12 +173,12 @@ def _sharded_save(state_dict: dict[str, torch.Tensor], output_dir: Path) -> None
     )
 
 
-def _write_config(base_dir: Path, output_dir: Path) -> int:
+def _write_config(base_dir: Path, output_dir: Path, *, num_blocks: int = _NUM_BLOCKS) -> int:
     base = json.loads((base_dir / "config.json").read_text())
     text = dict(base["text_config"])
     text["architectures"] = [_ARCHITECTURE]
-    text["model_type"] = "qwen3_5_text"
-    text["audio_processor"] = {"name": "cascades", "config": dict(_STAGE1_AUDIO_CONFIG)}
+    text["audio_processor"] = {"name": "cascades", "config": {**_STAGE1_AUDIO_CONFIG, "num_blocks": num_blocks}}
+    text["tie_word_embeddings"] = base.get("tie_word_embeddings", text.get("tie_word_embeddings", True))
     text["embd_layer"] = dict(_EMBD_LAYER)
     text.setdefault("torch_dtype", text.get("dtype", "bfloat16"))
     (output_dir / "config.json").write_text(json.dumps(text, indent=2))
@@ -163,23 +186,35 @@ def _write_config(base_dir: Path, output_dir: Path) -> int:
 
 
 def main() -> None:
-    """Assemble the stage-1 combined HF checkpoint from the base LLM and the 22L encoder."""
+    """Assemble a combined HF checkpoint from the base LLM and a standalone speech encoder."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-hf", required=True, help="Base Qwen3.5-4B HF directory.")
+    parser.add_argument("--base-hf", required=True, help="Base Qwen3.5/Qwen3.6 HF directory.")
     parser.add_argument("--encoder-checkpoint", required=True, help="Standalone checkpoint_22L/model.checkpoint.")
     parser.add_argument("--output-dir", required=True, help="Destination combined HF directory.")
     parser.add_argument("--seed", type=int, default=1234, help="Seed for the random projector init.")
+    parser.add_argument("--encoder-num-blocks", type=int, choices=(23, 24), default=23)
+    parser.add_argument("--mean-file", type=Path)
+    parser.add_argument("--invstd-file", type=Path)
     args = parser.parse_args()
+    if (args.mean_file is None) != (args.invstd_file is None):
+        parser.error("--mean-file and --invstd-file must be supplied together")
 
     base_dir = Path(args.base_hf)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    hidden_size = _write_config(base_dir, output_dir)
+    hidden_size = _write_config(base_dir, output_dir, num_blocks=args.encoder_num_blocks)
+    encoder_state = _load_encoder(
+        Path(args.encoder_checkpoint), num_blocks=args.encoder_num_blocks,
+        mean_file=args.mean_file, invstd_file=args.invstd_file,
+    )
+    projector = _random_projector(
+        hidden_size, args.seed, num_blocks=args.encoder_num_blocks, encoder_state=encoder_state,
+    )
     combined: dict[str, torch.Tensor] = {}
     combined.update(_load_base_llm(base_dir))
-    combined.update(_load_encoder(Path(args.encoder_checkpoint)))
-    combined.update(_random_projector(hidden_size, args.seed))
+    combined.update(encoder_state)
+    combined.update(projector)
     logger.info("total combined tensors: %d", len(combined))
     _sharded_save(combined, output_dir)
 

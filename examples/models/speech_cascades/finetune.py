@@ -81,6 +81,7 @@ def main() -> None:
     # Patch torch.distributed.checkpoint.load for PyTorch>=2.6 (drops the no_dist kwarg MCore passes).
     from megatron.bridge.models.speech_cascades import dcp_compat  # noqa: F401
     from megatron.bridge.models.speech_cascades.obs_logging import install_speech_obs_logging
+    from megatron.bridge.models.speech_cascades.peft import SpeechCascadesLoRA
     from megatron.bridge.models.speech_cascades.step import forward_step
     from megatron.bridge.training.finetune import finetune
     from megatron.bridge.training.pretrain import pretrain
@@ -103,6 +104,8 @@ def main() -> None:
     )
     parser.add_argument("--streaming-force-local", action="store_true", help="Read streaming data from mounts.")
     parser.add_argument("--streaming-token-budget", type=int, default=None, help="Override per-batch frame budget.")
+    parser.add_argument("--streaming-num-workers", type=int, default=1)
+    parser.add_argument("--streaming-prefetch-factor", type=int, default=16)
     parser.add_argument("--val-shards", nargs="+", default=None, help="Optional validation shards.")
     parser.add_argument("--output-dir", default=None, help="Experiment root (checkpoints + logs).")
     parser.add_argument("--name", default="speech_cascades_finetune")
@@ -111,8 +114,17 @@ def main() -> None:
     parser.add_argument("--freeze-language-model", action="store_true", help="Freeze the LLM (stage-1).")
     parser.add_argument("--freeze-audio-model", action="store_true", help="Freeze the audio encoder.")
     parser.add_argument("--activation-recompute", action="store_true", help="Full activation recompute.")
+    parser.add_argument(
+        "--attention-backend",
+        choices=["auto", "flash", "fused", "unfused", "local"],
+        default=None,
+        help="Attention backend override for the language model.",
+    )
     parser.add_argument("--tensor-model-parallel-size", type=int, default=1)
     parser.add_argument("--pipeline-model-parallel-size", type=int, default=1)
+    parser.add_argument("--sequence-parallel", action="store_true")
+    parser.add_argument("--expert-model-parallel-size", type=int, default=1)
+    parser.add_argument("--expert-tensor-parallel-size", type=int, default=1)
     parser.add_argument("--train-iters", type=int, default=None, help="Iterations (defaults per recipe/phase).")
     parser.add_argument("--global-batch-size", type=int, default=8)
     parser.add_argument("--micro-batch-size", type=int, default=1)
@@ -121,6 +133,12 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=None, help="Peak LR (defaults per recipe).")
     parser.add_argument("--lr-warmup-iters", type=int, default=None, help="LR warmup (defaults per recipe).")
     parser.add_argument("--log-interval", type=int, default=10, help="Console/MLflow logging cadence.")
+    parser.add_argument("--timing-log-level", type=int, choices=[0, 1, 2], default=1)
+    parser.add_argument("--lora-rank", type=int, default=None)
+    parser.add_argument("--lora-alpha", type=int, default=None)
+    parser.add_argument("--lora-dropout", type=float, default=0.1)
+    parser.add_argument("--normalize-moe-lora", action="store_true")
+    parser.add_argument("--per-expert-lora", action="store_true")
     # --- Stage-2 knowledge distillation + MTP (WP-A3) ---
     parser.add_argument("--s2-kd", action="store_true", help="Use the stage-2 KD+MTP recipe (freeze encoder + LLM).")
     parser.add_argument("--kd-phase", choices=["warm", "full"], default="full", help="Two-phase KD schedule.")
@@ -144,6 +162,22 @@ def main() -> None:
 
     _apply_train_config_yaml(args, parser)
 
+    peft = None
+    if args.lora_rank is not None:
+        if args.lora_rank <= 0:
+            parser.error("--lora-rank must be positive")
+        if args.pretrained_checkpoint is None:
+            parser.error("--lora-rank requires --pretrained-checkpoint")
+        if args.s2_kd:
+            parser.error("--lora-rank is not supported together with --s2-kd")
+        peft = SpeechCascadesLoRA(
+            dim=args.lora_rank,
+            alpha=args.lora_alpha if args.lora_alpha is not None else 2 * args.lora_rank,
+            dropout=args.lora_dropout,
+            normalize_moe_lora=args.normalize_moe_lora,
+            share_expert_adapters=not args.per_expert_lora,
+        )
+
     if args.s2_kd:
         if args.streaming_config_yaml is None:
             parser.error("--s2-kd requires --streaming-config-yaml")
@@ -161,6 +195,8 @@ def main() -> None:
             streaming_config_yaml=args.streaming_config_yaml,
             streaming_force_local=args.streaming_force_local,
             streaming_token_budget=args.streaming_token_budget,
+            streaming_num_workers=args.streaming_num_workers,
+            streaming_prefetch_factor=args.streaming_prefetch_factor,
             output_dir=args.output_dir,
             name=args.name,
             load_hf_weights=args.load_hf_weights,
@@ -178,11 +214,15 @@ def main() -> None:
             mtp_distillation_weight=args.mtp_distillation_weight,
             tensor_model_parallel_size=args.tensor_model_parallel_size,
             pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+            sequence_parallel=args.sequence_parallel,
+            expert_model_parallel_size=args.expert_model_parallel_size,
+            expert_tensor_parallel_size=args.expert_tensor_parallel_size,
             global_batch_size=args.global_batch_size,
             micro_batch_size=args.micro_batch_size,
             seq_length=args.seq_length,
             activation_recompute=args.activation_recompute,
             log_interval=args.log_interval,
+            timing_log_level=args.timing_log_level,
             **kd_kwargs,
         )
     else:
@@ -193,6 +233,8 @@ def main() -> None:
             streaming_config_yaml=args.streaming_config_yaml,
             streaming_force_local=args.streaming_force_local,
             streaming_token_budget=args.streaming_token_budget,
+            streaming_num_workers=args.streaming_num_workers,
+            streaming_prefetch_factor=args.streaming_prefetch_factor,
             output_dir=args.output_dir,
             name=args.name,
             pretrained_checkpoint=args.pretrained_checkpoint,
@@ -200,8 +242,12 @@ def main() -> None:
             freeze_language_model=args.freeze_language_model,
             freeze_audio_model=args.freeze_audio_model,
             activation_recompute=args.activation_recompute,
+            peft=peft,
             tensor_model_parallel_size=args.tensor_model_parallel_size,
             pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+            sequence_parallel=args.sequence_parallel,
+            expert_model_parallel_size=args.expert_model_parallel_size,
+            expert_tensor_parallel_size=args.expert_tensor_parallel_size,
             train_iters=args.train_iters if args.train_iters is not None else 8,
             global_batch_size=args.global_batch_size,
             micro_batch_size=args.micro_batch_size,
@@ -210,7 +256,10 @@ def main() -> None:
             lr=args.lr if args.lr is not None else 5e-6,
             lr_warmup_iters=args.lr_warmup_iters if args.lr_warmup_iters is not None else 2,
             log_interval=args.log_interval,
+            timing_log_level=args.timing_log_level,
         )
+    if args.attention_backend is not None:
+        cfg.model.attention_backend = args.attention_backend
     # With --load-hf-weights the provider already bakes weights into the model at build time,
     # so no checkpoint load is required; pretrain() still auto-resumes from checkpoint.load if
     # a prior iteration exists. finetune() (which hard-requires a checkpoint source) is used only

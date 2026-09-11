@@ -66,14 +66,11 @@ def _pop_interval_audio_hours() -> float:
     global _AUDIO_SECONDS_INTERVAL
     seconds = _AUDIO_SECONDS_INTERVAL
     _AUDIO_SECONDS_INTERVAL = 0.0
-    if torch.distributed.is_initialized() and torch.cuda.is_available():
+    if torch.distributed.is_initialized():
         from megatron.core import parallel_state
 
-        tensor = torch.tensor([seconds], dtype=torch.float64, device="cuda")
-        try:
-            group = parallel_state.get_data_parallel_group()
-        except Exception:
-            group = None
+        tensor = torch.tensor([seconds], dtype=torch.float64, device="cpu")
+        group = parallel_state.get_data_parallel_group_gloo()
         torch.distributed.all_reduce(tensor, group=group)
         seconds = float(tensor.item())
     return seconds / 3600.0

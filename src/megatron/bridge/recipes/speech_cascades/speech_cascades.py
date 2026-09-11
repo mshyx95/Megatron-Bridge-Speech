@@ -34,6 +34,7 @@ from megatron.bridge.data.speech_chunk import ALMLocalDatasetProvider
 # Import the bridge module so its @register_bridge decorator registers the
 # Qwen3_5SpeechCascadesForConditionalGeneration architecture with AutoBridge.
 from megatron.bridge.models.speech_cascades import bridge as _speech_cascades_bridge  # noqa: F401
+from megatron.bridge.peft.base import PEFT
 from megatron.bridge.recipes.utils.optimizer_utils import distributed_fused_adam_with_cosine_annealing
 from megatron.bridge.recipes.utils.tokenizer_utils import DEFAULT_NULL_TOKENIZER_VOCAB_SIZE
 from megatron.bridge.training.config import (
@@ -62,12 +63,16 @@ def speech_cascades_finetune_config(
     streaming_config_yaml: Optional[str] = None,
     streaming_force_local: bool = False,
     streaming_token_budget: Optional[int] = None,
+    streaming_num_workers: int = 1,
+    streaming_prefetch_factor: int = 16,
     # Parallelism
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
     pipeline_dtype: Optional[torch.dtype] = None,
     context_parallel_size: int = 1,
     sequence_parallel: bool = False,
+    expert_model_parallel_size: int = 1,
+    expert_tensor_parallel_size: int = 1,
     # Training hyperparameters
     train_iters: int = 8,
     global_batch_size: int = 1,
@@ -89,12 +94,14 @@ def speech_cascades_finetune_config(
     freeze_language_model: bool = False,
     freeze_audio_model: bool = False,
     activation_recompute: bool = False,
+    peft: Optional[PEFT] = None,
     # W&B logging
     wandb_project: Optional[str] = None,
     wandb_entity: Optional[str] = None,
     wandb_exp_name: Optional[str] = None,
     # Console / MLflow logging cadence (MLflow attaches to the ambient AzureML run in obs_logging).
     log_interval: int = 10,
+    timing_log_level: int = 1,
 ) -> ConfigContainer:
     """Create a fine-tuning configuration for the Cascades speech ALM.
 
@@ -123,6 +130,8 @@ def speech_cascades_finetune_config(
     model_cfg.pipeline_dtype = pipeline_dtype
     model_cfg.context_parallel_size = context_parallel_size
     model_cfg.sequence_parallel = sequence_parallel
+    model_cfg.expert_model_parallel_size = expert_model_parallel_size
+    model_cfg.expert_tensor_parallel_size = expert_tensor_parallel_size
     model_cfg.freeze_language_model = freeze_language_model
     if activation_recompute:
         # Full recompute (every layer): the frozen LLM's activations are still needed to backprop
@@ -154,8 +163,8 @@ def speech_cascades_finetune_config(
             speech_config_yaml=streaming_config_yaml,
             force_local=streaming_force_local,
             token_budget_override=streaming_token_budget,
-            num_workers=1,
-            prefetch_factor=16,
+            num_workers=streaming_num_workers,
+            prefetch_factor=streaming_prefetch_factor,
             data_sharding=True,
             pin_memory=True,
             persistent_workers=True,
@@ -201,7 +210,7 @@ def speech_cascades_finetune_config(
             log_interval=log_interval,
             tensorboard_dir=tensorboard_dir,
             tensorboard_log_interval=1,
-            timing_log_level=1,
+            timing_log_level=timing_log_level,
             log_throughput=True,
             log_throughput_to_tensorboard=True,
             log_memory_to_tensorboard=True,
@@ -220,6 +229,7 @@ def speech_cascades_finetune_config(
         ),
         rng=RNGConfig(seed=1234),
         mixed_precision=precision_config,
+        peft=peft,
     )
 
     return cfg
@@ -235,6 +245,8 @@ def speech_cascades_s2_kd_config(
     streaming_config_yaml: str,
     streaming_force_local: bool = False,
     streaming_token_budget: Optional[int] = None,
+    streaming_num_workers: int = 1,
+    streaming_prefetch_factor: int = 16,
     output_dir: str | None = None,
     name: str = "speech_cascades_s2_kd",
     load_hf_weights: bool = False,
@@ -260,6 +272,8 @@ def speech_cascades_s2_kd_config(
     pipeline_model_parallel_size: int = 1,
     context_parallel_size: int = 1,
     sequence_parallel: bool = False,
+    expert_model_parallel_size: int = 1,
+    expert_tensor_parallel_size: int = 1,
     global_batch_size: int = 1,
     micro_batch_size: int = 1,
     seq_length: int = 8192,
@@ -273,6 +287,7 @@ def speech_cascades_s2_kd_config(
     activation_recompute: bool = True,
     precision_config: Optional[Union[MixedPrecisionConfig, str]] = "bf16_mixed",
     log_interval: int = 10,
+    timing_log_level: int = 1,
 ) -> ConfigContainer:
     """Create the stage-2 speech->text KD + MTP configuration (freeze encoder + LLM).
 
@@ -318,10 +333,14 @@ def speech_cascades_s2_kd_config(
         streaming_config_yaml=streaming_config_yaml,
         streaming_force_local=streaming_force_local,
         streaming_token_budget=streaming_token_budget,
+        streaming_num_workers=streaming_num_workers,
+        streaming_prefetch_factor=streaming_prefetch_factor,
         tensor_model_parallel_size=tensor_model_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         context_parallel_size=context_parallel_size,
         sequence_parallel=sequence_parallel,
+        expert_model_parallel_size=expert_model_parallel_size,
+        expert_tensor_parallel_size=expert_tensor_parallel_size,
         train_iters=resolved_iters,
         global_batch_size=global_batch_size,
         micro_batch_size=micro_batch_size,
@@ -339,6 +358,7 @@ def speech_cascades_s2_kd_config(
         activation_recompute=activation_recompute,
         precision_config=precision_config,
         log_interval=log_interval,
+        timing_log_level=timing_log_level,
     )
 
     model_cfg = cfg.model
