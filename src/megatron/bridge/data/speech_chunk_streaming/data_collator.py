@@ -15,7 +15,6 @@ from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.transforms.utils
 from megatron.bridge.data.speech_chunk.teacher_text import (
     build_teacher_text_example,
     collate_teacher_text_examples,
-    derive_transcript_ids,
 )
 
 
@@ -151,7 +150,7 @@ class ALMDataDynamicCollator(LMDataCollator):
     )
     audio_key: Optional[str] = field(default='input_embeds', metadata={"help": "Key to access audio embeddings in examples."})
     padding_mask: Optional[bool] = field(default=False, metadata={"help": "Whether to apply padding mask to the entire sequence."})
-    knowledge_distillation: Optional[bool] = field(default=False, metadata={"help": "Emit the teacher text batch when every example carries transcript_ids."})
+    knowledge_distillation: Optional[bool] = field(default=False, metadata={"help": "Require teacher tensors or explicit transcript_ids; never infer rewrite transcripts from answers."})
 
     def __post_init__(self) -> None:
         self.ignore_token_ids = None
@@ -397,7 +396,10 @@ class ALMDataDynamicCollator(LMDataCollator):
             batch['spkid'] = spkid_label.long()
             batch['spkid_lens'] = torch.tensor(spkid_label_lens).long()
 
-        if self.knowledge_distillation:
+        if self.knowledge_distillation or any(
+            any(key in example for key in ("teacher_input_ids", "teacher_labels", "teacher_attention_mask"))
+            for example in examples
+        ):
             self._add_teacher_batch(examples, batch)
 
         self._maybe_dump_inputs(examples, batch)
@@ -408,20 +410,31 @@ class ALMDataDynamicCollator(LMDataCollator):
         examples: List[Dict[str, torch.LongTensor]],
         batch: Dict[str, torch.LongTensor],
     ) -> None:
-        """Attach the teacher text batch, deriving transcript_ids from ASR responses when absent."""
-        sep_variants = self._separator_id_variants()
-        for e in examples:
-            if e.get("transcript_ids") is None:
-                e["transcript_ids"] = derive_transcript_ids(
-                    e["input_ids"], e["labels"], separator_ids_variants=sep_variants
-                )
-        present = ["transcript_ids" in e for e in examples]
-        if not any(present):
+        """Pad template-built teacher tensors, or use explicitly supplied local transcript tokens."""
+        teacher_keys = ("teacher_input_ids", "teacher_labels", "teacher_attention_mask")
+        if any(any(key in example for key in teacher_keys) for example in examples):
+            if not all(all(example.get(key) is not None for key in teacher_keys) for example in examples):
+                raise ValueError("A KD batch requires all three teacher fields for every example; cannot mix samples")
+            per_key = {key: [] for key in teacher_keys}
+            for example in examples:
+                tensors = {key: example[key] for key in teacher_keys}
+                shape = tensors["teacher_input_ids"].shape
+                if len(shape) not in (1, 2) or any(tensor.shape != shape for tensor in tensors.values()):
+                    raise ValueError("Teacher input IDs, labels and attention mask must have matching 1D or 2D shapes")
+                for key, tensor in tensors.items():
+                    per_key[key].append(tensor.unsqueeze(0) if tensor.dim() == 1 else tensor)
+            max_length = max(tensor.size(1) for tensor in per_key["teacher_input_ids"])
+            for key, tensors in per_key.items():
+                pad_value = self.tokenizer.pad_token_id if key == "teacher_input_ids" else (-100 if key == "teacher_labels" else 0)
+                batch[key] = torch.cat([
+                    torch.cat([tensor, tensor.new_full((tensor.size(0), max_length - tensor.size(1)), pad_value)], dim=1)
+                    for tensor in tensors
+                ])
             return
-        if not all(present):
+        if not all(example.get("transcript_ids") is not None for example in examples):
             raise ValueError(
-                "A knowledge-distillation batch cannot mix examples with and without transcript_ids: "
-                f"{sum(present)}/{len(examples)} examples have transcript_ids"
+                "Knowledge distillation requires template-built teacher inputs or explicit transcript_ids "
+                "for every example; response labels are not a source transcript for rewrite data"
             )
         teacher_input_ids, teacher_labels = [], []
         for e in examples:
@@ -432,24 +445,6 @@ class ALMDataDynamicCollator(LMDataCollator):
             collate_teacher_text_examples(teacher_input_ids, teacher_labels, self.tokenizer.pad_token_id)
         )
 
-    def _separator_id_variants(self) -> List[List[int]]:
-        """Tokenizations of the ``<sep>`` marker (unspaced + space-prefixed) used to split ast-cot.
-
-        For ast-cot the response is ``{transcript}<sep>{translation}``; matching the full ``<sep>`` token
-        subsequence lets the teacher path keep only the source transcript. Cached on first use.
-        """
-        cached = getattr(self, "_sep_variants_cache", None)
-        if cached is not None:
-            return cached
-        variants: List[List[int]] = []
-        plain = self.tokenizer.encode("<sep>", add_special_tokens=False)
-        if plain:
-            variants.append(list(plain))
-            spaced = self.tokenizer.encode("a <sep>", add_special_tokens=False)
-            if len(spaced) >= len(plain) and spaced[-len(plain):] != plain:
-                variants.append(list(spaced[-len(plain):]))
-        self._sep_variants_cache = variants
-        return variants
 
 
 

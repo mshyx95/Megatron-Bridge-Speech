@@ -62,7 +62,7 @@ def greedy_generate(
     """
     inner = _unwrap(model)
     gpt = inner.language_model
-    weight = gpt.shared_embedding_or_output_weight()
+    weight = gpt.shared_embedding_or_output_weight() if gpt.share_embeddings_and_output_weights else None
     eos = set(int(t) for t in eos_token_ids)
 
     generated = input_ids

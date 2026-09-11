@@ -37,7 +37,7 @@ RUN export TMS_CUDA_MAJOR="$("${CUDA_HOME:-/usr/local/cuda}"/bin/nvcc --version 
     uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages && \
     uv sync --locked --no-install-project --extra audio && \
     uv pip install --no-deps --reinstall -e 3rdparty/Megatron-LM && \
-    uv cache prune --ci || true
+    (uv cache prune --ci || true)
 
 # Speech runtime + eval extras not carried in the bridge project deps.
 #  - soundfile/whisper_normalizer/kaldialign/editdistance: OpenASR eval + feature IO

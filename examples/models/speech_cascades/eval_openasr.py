@@ -35,7 +35,9 @@ Launch under the platform MPI env or ``torch.distributed.run`` (TP=PP=1, world s
 import argparse
 import io
 import json
+import logging
 import os
+import time
 
 
 def _patch_transformers_compat() -> None:
@@ -74,6 +76,7 @@ from megatron.bridge.models.speech_cascades.generate import greedy_generate  # n
 
 
 IGNORE_INDEX = -100
+logger = logging.getLogger(__name__)
 # Datasets that use the lexical-format ASR prompt on the leaderboard.
 _LEXICAL = {"librispeech-clean", "librispeech-other", "gigaspeech"}
 
@@ -160,6 +163,11 @@ def _eval_one_subset(subset, min_duration, model, processor, tokenizer, eos, lan
     from datasets import Audio, load_dataset
 
     scorer = _build_scorer(language)
+    report_progress = ps.get_tensor_model_parallel_rank() == 0
+    started = time.monotonic()
+    capped = 0
+    if report_progress:
+        logger.info("[openasr] starting subset=%s dp_rank=%s/%s", subset, dp_rank, dp_world)
 
     if subset == "librispeech-clean":
         dataset = load_dataset(args.data_dir, "librispeech", split="test.clean")
@@ -178,6 +186,7 @@ def _eval_one_subset(subset, min_duration, model, processor, tokenizer, eos, lan
     for idx in range(dp_rank, len(dataset), dp_world):
         if len(pairs) >= args.max_samples:
             break
+        sample_started = time.monotonic()
         sample = dataset[idx]
         reference = _get_text(sample)
         if not reference:
@@ -216,12 +225,26 @@ def _eval_one_subset(subset, min_duration, model, processor, tokenizer, eos, lan
         hypothesis = tokenizer.decode(hyp_ids, skip_special_tokens=True)
         # Reference is normalized once here; hypothesis is normalized inside the scorer (prod parity).
         pairs.append((scorer.normalize_reference(reference), hypothesis))
+        capped += int(len(hyp_ids) >= args.max_new_tokens and (not hyp_ids or hyp_ids[-1] not in eos))
+        if report_progress and (len(pairs) == 1 or len(pairs) % 25 == 0):
+            logger.info(
+                "[openasr] subset=%s dp_rank=%s completed=%s dataset_index=%s/%s "
+                "elapsed_s=%.1f sample_s=%.2f tokens=%s capped=%s",
+                subset, dp_rank, len(pairs), idx, len(dataset), time.monotonic() - started,
+                time.monotonic() - sample_started, len(hyp_ids), capped,
+            )
+
+    if report_progress:
+        logger.info(
+            "[openasr] decode_done subset=%s dp_rank=%s completed=%s elapsed_s=%.1f; gathering scores",
+            subset, dp_rank, len(pairs), time.monotonic() - started,
+        )
 
     # Gather all pairs to rank 0 so kaldialign batch scoring runs over the whole corpus (parity).
     gathered: list[list[tuple[str, str]]] = [None] * dp_world  # type: ignore[list-item]
     dist.all_gather_object(gathered, pairs, group=ps.get_data_parallel_group())
 
-    if dp_rank == 0:
+    if dp_rank == 0 and ps.get_tensor_model_parallel_rank() == 0:
         corpus = [p for shard in gathered for p in shard]
         for ref_norm, raw_hyp in corpus:
             scorer.add_string(ref_norm, raw_hyp)
@@ -238,6 +261,8 @@ def _eval_one_subset(subset, min_duration, model, processor, tokenizer, eos, lan
 
 def main() -> None:
     """Load the model once and decode each ESB subset, reporting corpus WER per subset."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logger.setLevel(logging.INFO)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hf-path", required=True, help="Converted stage-1 HF dir (model config).")
     parser.add_argument("--checkpoint", required=True, help="Megatron dist checkpoint dir (iter_*).")
@@ -249,7 +274,15 @@ def main() -> None:
     parser.add_argument("--language", default="en")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--output-dir", default=None, help="Directory for per-subset wer_<subset>.json.")
+    parser.add_argument("--lora", action="store_true", help="Restore Speech Cascades LoRA and audio trainables.")
+    parser.add_argument("--base-checkpoint", help="Original frozen-base Megatron iteration directory for LoRA.")
+    parser.add_argument("--expert-scaling", choices=("normalized", "legacy"))
+    parser.add_argument("--tensor-model-parallel-size", type=int, default=1)
     args = parser.parse_args()
+    if args.lora and args.expert_scaling is None:
+        parser.error("--lora requires explicit --expert-scaling")
+    if not args.lora and (args.base_checkpoint or args.tensor_model_parallel_size != 1):
+        parser.error("Base checkpoint and TP overrides currently require --lora")
 
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if not dist.is_initialized():
@@ -259,7 +292,12 @@ def main() -> None:
 
         dist.init_process_group(backend="nccl", timeout=timedelta(minutes=30))
     torch.cuda.set_device(local_rank)
-    ps.initialize_model_parallel(1, 1)
+    ps.initialize_model_parallel(
+        tensor_model_parallel_size=args.tensor_model_parallel_size,
+        pipeline_model_parallel_size=1,
+        expert_model_parallel_size=1,
+        expert_tensor_parallel_size=args.tensor_model_parallel_size,
+    )
     model_parallel_cuda_manual_seed(0)
     dp_rank = ps.get_data_parallel_rank()
     dp_world = ps.get_data_parallel_world_size()
@@ -271,7 +309,18 @@ def main() -> None:
     )
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
-    model = _load_model(args.hf_path, args.checkpoint)
+    if args.lora:
+        from lora_eval import build_lora_model
+
+        model = build_lora_model(
+            args.hf_path,
+            args.checkpoint,
+            base_checkpoint=args.base_checkpoint,
+            expert_scaling=args.expert_scaling,
+            tensor_parallel_size=args.tensor_model_parallel_size,
+        )
+    else:
+        model = _load_model(args.hf_path, args.checkpoint)
     processor = LogFbankProcessor()
     eos = _eos_ids(tokenizer)
 

@@ -218,6 +218,7 @@ TASK_FORMAT_MAPPING = {
 
 def add_audio_text_in_conversation(
     texts, user_prompts, languages, contexts, conv_template, prompt_formatter: str = None, fixed_prompt: bool = True, instruction_first: bool = False, bias_after_audio: bool = False,
+    audio_transcripts=None,
 ):
     # audio1 text1, audio2 text2,....,
 
@@ -226,7 +227,8 @@ def add_audio_text_in_conversation(
         system_role = conv_template.get_system_role()
 
         if len(texts[i]) == 1 and (prompt_formatter is not None):
-            messages = convert_to_prompt(roles, texts[i][0], prompt_formatter, fixed_prompt, user_prompts[i], languages[i], contexts[i])
+            sample_transcripts = None if audio_transcripts is None else audio_transcripts[i]
+            messages = convert_to_prompt(roles, texts[i][0], prompt_formatter, fixed_prompt, user_prompts[i], languages[i], contexts[i], sample_transcripts)
         else:
             # the data label has already been processed into formats of conversation
             raw_messages = texts[i]

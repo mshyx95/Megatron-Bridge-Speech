@@ -343,6 +343,22 @@ class BlobChunkALMDataset(ChunkSpeechTextSeq2SeqDataset):
         else:
             self.max_token_len = 32000
 
+    def _prepare_example_for_distillation(self, example):
+        if not getattr(self.transforms, "knowledge_distillation", False):
+            return True
+        try:
+            resolved = self.transforms._require_complete_teacher_transcripts(
+                [example["annotations"]], [example.get("audio_transcripts")], [example["audio_embed_sizes"]],
+            )
+        except ValueError as exc:
+            logger.error(
+                "Skipping sample that cannot construct KD teacher inputs: %s; language=%r, annotations=%s",
+                exc, example.get("language"), repr(example.get("annotations"))[:240],
+            )
+            return False
+        example["audio_transcripts"] = resolved[0]
+        return True
+
     def get_max_prompt_len(self):
         """get the max prompt length for the current dataset"""
         if self.conv_template in ["phi_3", "phi_o"]:
@@ -455,6 +471,7 @@ class BlobChunkALMDataset(ChunkSpeechTextSeq2SeqDataset):
                     self._fill_buffer_by_length(self._example_buffer, len(single_batch))
 
                 audios, texts, user_prompts, languages, spkid, contexts = [], [], [], [], [], []
+                audio_transcripts = []
                 audio_embed_sizes, audio_frames = [], []
 
                 for example in single_batch:
@@ -467,6 +484,7 @@ class BlobChunkALMDataset(ChunkSpeechTextSeq2SeqDataset):
                     languages.append(example["language"])
                     spkid.append(example.get("spkid"))
                     contexts.append(example.get("context", None))
+                    audio_transcripts.append(example.get("audio_transcripts"))
 
                 # TODO: when user prompts are in audio format
                 raw_sample = {
@@ -479,6 +497,7 @@ class BlobChunkALMDataset(ChunkSpeechTextSeq2SeqDataset):
                     "languages": languages,
                     "spkid": spkid,
                     "contexts": contexts,
+                    "audio_transcripts": audio_transcripts,
                 }
 
                 if self.transforms.prompt_formatter == "asr-lid-codeswitch":
@@ -520,6 +539,11 @@ class BlobChunkALMDataset(ChunkSpeechTextSeq2SeqDataset):
                 else:
                     ctc_labels = None
 
+                teacher_fields = {
+                    key: sample[key]
+                    for key in ("teacher_input_ids", "teacher_labels", "teacher_attention_mask")
+                    if key in sample
+                }
                 sample = {
                     "input_ids": input_ids,
                     "input_embeds": input_embeds,
@@ -528,6 +552,7 @@ class BlobChunkALMDataset(ChunkSpeechTextSeq2SeqDataset):
                     "audio_frames": audio_frames,
                     "is_text_sample": is_text_sample,
                     "spkid": spkid,
+                    **teacher_fields,
                 }
 
                 if ctc_labels is not None:
@@ -964,6 +989,9 @@ class BlobChunkALMDataset(ChunkSpeechTextSeq2SeqDataset):
                         _prof["feat"] += time.time() - _t0
 
                     new_examples = self._sample_processor.materialize_examples(sample, audio_frames, audio_embed_sizes, sample_processing_state)
+                    new_examples = [
+                        example for example in new_examples if self._prepare_example_for_distillation(example)
+                    ]
                     if not self.allow_pure_text_return:
                         # Keep only examples whose EVERY audio is usable by the conformer encoder:
                         #  (a) audio_embed_size > 0 -- else the encoder time reduction gives length 0
