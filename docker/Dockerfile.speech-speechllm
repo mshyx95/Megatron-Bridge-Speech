@@ -5,17 +5,17 @@
 # NGC-derived speech image: torch 2.12 / TE 2.15 / apex / flash-attn / triton 3.7, Ubuntu 24.04,
 # Python 3.12). Replaces the ad-hoc jing-dev image (which was removed by a registry security cleanup).
 #
-# The bridge treats torch/TE/apex/flash-attn as system packages (uv.lock marks them
-# `sys_platform == 'never'`), so we reuse the base's compiled CUDA stack via
-# `uv venv --system-site-packages` and only `uv sync` the pure-Python deps + audio + te extras. This
-# deliberately skips the MoE/EP/SSM CUDA libraries (DeepEP, HybridEP, mamba-ssm, flash-mla) that a
-# dense Qwen3.5 + audio-encoder model does not need.
+# Reuse the base's PyTorch/CUDA stack through system site packages. MCore now requires
+# Transformer Engine, which uv builds at the official lockfile pin. DeepEP, HybridEP,
+# mamba-ssm and flash-mla remain optional and are not needed by the alltoall speech path.
 
 ARG BASE_IMAGE=speechllmregistry.azurecr.io/speechllm:latest
 FROM ${BASE_IMAGE} AS speech_speechllm
 
 ARG UV_VERSION=0.9.17
+ARG NVTE_WITH_NCCL_EP=0
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV NVTE_SKIP_SUBMODULE_CHECKS_DURING_BUILD=1
 WORKDIR /opt/Megatron-Bridge
 
 # The base ships no uv; install a pinned uv for reproducible dependency resolution.
@@ -24,17 +24,12 @@ RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh && \
 
 COPY . .
 
-# Reuse the base image's compiled torch/TE/apex/flash-attn via --system-site-packages; install only
-# the core deps + audio extra, then the editable MCore submodule. We deliberately do NOT request the
-# `te` extra: that would rebuild a pinned TransformerEngine commit from source (20-40 min, and risky
-# against this newer torch), whereas the base already ships a working TransformerEngine 2.15 that
-# MCore imports as `transformer_engine.pytorch`. uv does NOT install torch (uv.lock:
-# `sys_platform == 'never'`), and lifts transformers into the bridge's >=5.8,<=5.12.1 range and mlflow
-# to >=3.15.1 (CVE-2025-15031) over the base's older pins. TMS_CUDA_MAJOR is required to build
-# torch-memory-saver (a core dep) against CUDA.
+# Install build dependencies before packages with disabled build isolation, including TE.
+# The official lockfile controls Transformers, TE and the MLflow security floor.
 RUN export TMS_CUDA_MAJOR="$("${CUDA_HOME:-/usr/local/cuda}"/bin/nvcc --version | sed -n 's/.*release \([0-9][0-9]*\).*/\1/p' | head -1)" && \
     test -n "$TMS_CUDA_MAJOR" && \
     uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages && \
+    uv sync --locked --only-group build && \
     uv sync --locked --no-install-project --extra audio && \
     uv pip install --no-deps --reinstall -e 3rdparty/Megatron-LM && \
     (uv cache prune --ci || true)

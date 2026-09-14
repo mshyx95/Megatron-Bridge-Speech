@@ -15,6 +15,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+import torch.nn.functional as F
+
 from megatron.bridge.models.qwen_vl.qwen35_vl_provider import Qwen35VLMoEModelProvider
 
 
@@ -28,6 +30,8 @@ def apply_qwen4_exp_config(provider: "Qwen4ExpModelProvider", text_config: Any) 
     provider.normalization = "RMSNorm"
     provider.layernorm_zero_centered_gamma = True
     provider.gated_linear_unit = True
+    provider.activation_func = F.silu
+    provider.gdn_output_gate = getattr(text_config, "output_gate_type", None) or "silu"
     provider.add_qkv_bias = getattr(text_config, "attention_bias", False)
     provider.add_bias_linear = False
     provider.qk_layernorm = True
@@ -79,6 +83,8 @@ def apply_qwen4_exp_config(provider: "Qwen4ExpModelProvider", text_config: Any) 
 class Qwen4ExpModelProvider(Qwen35VLMoEModelProvider):
     """Model provider for the Qwen4Exp vision-language MoE architecture."""
 
+    position_embedding_type: str = "rope"
+    gdn_output_gate: str = "sigmoid"
     hc_count: int = 4
     hc_lowrank: int = 320
 
@@ -95,6 +101,30 @@ class Qwen4ExpModelProvider(Qwen35VLMoEModelProvider):
     heads_per_ngram: int = 8
     ngram_vocab_size_base: int = 20_000_000
     make_ngram_vocab_size_divisible_by: int = 128
+    hf_text_config: dict[str, Any] | None = None
+
+    def provide(self, pre_process=None, post_process=None, vp_stage=None):
+        """Build the text-only backbone; vision and MTP are not yet integrated."""
+        from transformers.models.qwen4_exp.configuration_qwen4_exp import Qwen4ExpTextConfig
+
+        from .modeling_qwen4_exp.model import Qwen4ExpGPTModel
+
+        if pre_process is False or post_process is False or vp_stage is not None:
+            raise NotImplementedError("Qwen4Exp pipeline partitioning is not yet supported.")
+        if self.hf_text_config is None:
+            raise ValueError("hf_text_config must retain the source PLE hashing configuration.")
+        return Qwen4ExpGPTModel(
+            self,
+            Qwen4ExpTextConfig(**self.hf_text_config),
+            vocab_size=self.vocab_size,
+            max_sequence_length=self.seq_length,
+            parallel_output=self.parallel_output,
+            share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+            position_embedding_type="rope",
+            rotary_percent=self.rotary_percent,
+            rotary_base=self.rotary_base,
+            pg_collection=self._pg_collection,
+        )
 
     def finalize(self) -> None:
         """Validate Qwen4Exp geometry before finalizing the MCore config."""

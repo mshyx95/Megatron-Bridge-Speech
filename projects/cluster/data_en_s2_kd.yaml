@@ -1,6 +1,10 @@
 # Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Legacy ASR-sourced mixture: audio-response/continuation entries below do not supply
+# separate rewrite transcripts. Strict template KD now rejects those missing-transcript
+# samples; use data_s2tt_b1.yaml for the reference rewrite training mixture.
+# The historical response-derived teacher description below is not the current streaming path.
 # Stage-2 speech->text knowledge-distillation (KD) streaming data config, consumed by
 # SpeechChunkStreamingDatasetProvider / build_speech_chunk_dataset. Mirrors the reference phyagi S2
 # mixture that the MTP4-KD run trains on

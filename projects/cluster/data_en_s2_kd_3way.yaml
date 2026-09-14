@@ -1,5 +1,8 @@
 # Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+# Legacy ASR-sourced mixture: rewrite KD requires explicit source transcripts.
+# The current streaming path rejects missing rewrite transcripts rather than deriving
+# them from answer labels. Use data_s2tt_b1.yaml for the B1 reference mixture.
 #
 # Stage-2 speech->text knowledge-distillation (KD) streaming data config, consumed by
 # SpeechChunkStreamingDatasetProvider / build_speech_chunk_dataset. Mirrors the reference phyagi S2

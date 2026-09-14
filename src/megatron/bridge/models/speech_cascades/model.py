@@ -51,9 +51,7 @@ class SpeechCascadesModel(MegatronModule):
         self.audio_token_id = audio_token_id
 
         # Reuse the tested GPT builder for the Qwen3.5 (GDN hybrid) language model.
-        self.language_model = GPTModelProvider.provide(
-            config, pre_process=pre_process, post_process=post_process, vp_stage=vp_stage
-        )
+        self.language_model = self._build_language_model(config, pre_process, post_process, vp_stage)
 
         self.audio_model: CascadesAudioEmbedding | None = None
         if pre_process:
@@ -81,9 +79,10 @@ class SpeechCascadesModel(MegatronModule):
         if mtp_num_depth_layers > 0:
             self.mtp = self._build_mtp(config, mtp_num_depth_layers, vp_stage)
 
-    def _build_mtp(
-        self, config: GPTModelProvider, num_depth_layers: int, vp_stage: int | None
-    ) -> SpeechCascadesMTP:
+    def _build_language_model(self, config, pre_process, post_process, vp_stage):
+        return GPTModelProvider.provide(config, pre_process=pre_process, post_process=post_process, vp_stage=vp_stage)
+
+    def _build_mtp(self, config: GPTModelProvider, num_depth_layers: int, vp_stage: int | None) -> SpeechCascadesMTP:
         """Build the MTP depth heads from the language-model decoder's first-layer spec."""
         from megatron.core.transformer.spec_utils import build_module
 
@@ -197,9 +196,7 @@ class SpeechCascadesModel(MegatronModule):
                     input_ids, audio_input_features, audio_attention_mask, audio_embed_sizes
                 )
             else:
-                decoder_input = self.language_model.embedding(
-                    input_ids=input_ids.clamp_min(0), position_ids=None
-                )
+                decoder_input = self.language_model.embedding(input_ids=input_ids.clamp_min(0), position_ids=None)
 
         if position_ids is None:
             # decoder_input is precomputed, so the LM cannot infer positions from input_ids.
@@ -311,9 +308,7 @@ class SpeechCascadesModel(MegatronModule):
             **_,
         ):
             holder["hidden_states"] = hidden_states
-            logits, _ = output_layer(
-                hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output
-            )
+            logits, _ = output_layer(hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output)
             logits = scale_logits(logits)
             if labels is None:
                 return logits.transpose(0, 1).contiguous()

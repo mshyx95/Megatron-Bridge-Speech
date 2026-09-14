@@ -23,7 +23,7 @@ data_audio_processor:
   name: cascades
 
 tokenizer:
-  pretrained_model_name_or_path: /datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B/
+  pretrained_model_name_or_path: ${oc.env:SPEECH_TOKENIZER_PATH}
 
 dataset:
   - dataset_spec:
