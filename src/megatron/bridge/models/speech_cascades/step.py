@@ -164,9 +164,7 @@ def forward_step(
     inner = _unwrap_model(model)
     kl_loss = _compute_kd_kl(inner, batch, loss_mask)
     mtp_loss = _compute_mtp_loss(inner, batch, loss_mask)
-    distillation_weight = float(
-        getattr(inner.config, "distillation_weight", _DEFAULT_DISTILLATION_WEIGHT)
-    )
+    distillation_weight = float(getattr(inner.config, "distillation_weight", _DEFAULT_DISTILLATION_WEIGHT))
     loss_function = partial(
         _kd_loss_function,
         loss_mask,
@@ -243,9 +241,7 @@ def _compute_kd_kl(inner: MegatronModule, batch: dict[str, Any], loss_mask: torc
     )
 
 
-def _compute_mtp_loss(
-    inner: MegatronModule, batch: dict[str, Any], loss_mask: torch.Tensor
-) -> torch.Tensor | None:
+def _compute_mtp_loss(inner: MegatronModule, batch: dict[str, Any], loss_mask: torch.Tensor) -> torch.Tensor | None:
     """Compute the aggregated MTP per-depth KL+CE loss, or ``None`` when MTP is disabled.
 
     Gated to a no-op (returns ``None``) when ``mtp_num_hidden_layers == 0`` or the model did not
@@ -309,4 +305,7 @@ def _kd_loss_function(
     total_loss = distillation_loss(scaled_kl, ce_loss, distillation_weight)
     if mtp_loss is not None:
         total_loss = total_loss + mtp_loss * num_tokens.clamp(min=1)
+    reporting["ce loss"] = reporting["lm loss"]
+    reporting["kl loss"] = torch.cat([scaled_kl.detach().view(1), num_tokens.view(1)])
+    reporting["lm loss"] = torch.cat([total_loss.detach().view(1), num_tokens.view(1)])
     return total_loss, num_tokens, reporting

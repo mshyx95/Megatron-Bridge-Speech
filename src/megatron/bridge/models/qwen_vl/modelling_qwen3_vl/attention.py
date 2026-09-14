@@ -62,6 +62,11 @@ class Qwen3VLSelfAttention(SelfAttention):
     instead of apply_rotary_pos_emb
     """
 
+    @property
+    def model_comm_pgs(self) -> object:
+        """Compatibility alias for older Qwen attention helpers."""
+        return self.pg_collection
+
     @staticmethod
     def _local_causal_attention(query: Tensor, key: Tensor, value: Tensor, scale: float) -> Tensor:
         """Causal attention fallback for local padded fixed-score paths."""

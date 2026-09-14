@@ -1,0 +1,36 @@
+# B1 reproduction: Qwen3.5-4B + frozen Phi-4 MM 24L encoder + random MLP (9.18M).
+# Single-stage projector-only KL training; requires the B1 model and data preparation.
+s2_kd: true
+kd_phase: full
+train_iters: 4000
+full_iters: 4000
+load_hf_weights: true
+freeze_language_model: true
+freeze_audio_model: false
+lora_rank: null
+mtp_num_hidden_layers: 0
+mtp_loss_weight: 0.0
+mtp_distillation_weight: 0.0
+
+distillation_weight: 1.0
+distillation_temperature: 2.0
+distillation_kl_chunk_size: 128
+
+tensor_model_parallel_size: 1
+pipeline_model_parallel_size: 1
+expert_model_parallel_size: 1
+expert_tensor_parallel_size: 1
+sequence_parallel: false
+global_batch_size: 512
+micro_batch_size: 1
+seq_length: 8192
+activation_recompute: true
+attention_backend: flash
+
+lr: 1.0e-4
+lr_warmup_iters: 100
+save_interval: 400
+log_interval: 10
+timing_log_level: 1
+streaming_num_workers: 1
+streaming_prefetch_factor: 512

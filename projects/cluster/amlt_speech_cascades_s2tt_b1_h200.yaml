@@ -1,0 +1,13 @@
+description: Megatron-B1 Qwen3.5-4B Phi-4 MM 24L projector-only S2TT KL on 32 H200 GPUs
+
+<<: !include .speech-h200.local.yaml
+
+jobs:
+  - <<: *speech_h200_job
+    name: megatron-b1-4b-phi24-mlp-kl-gbs512-4k-32gpu
+    sku: 4x141G8-H200-IB-NvLink
+    sla_tier: premium
+    priority: high
+    command:
+      - export BASE_HF=${BASE_HF} ENCODER_DIR=${ENCODER_DIR} OUTPUT=${OUTPUT}
+      - bash projects/cluster/run_speech_cascades_s2tt_b1.sh
