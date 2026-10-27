@@ -10,10 +10,12 @@ from json import JSONDecodeError
 import logging
 import math
 from pathlib import Path
+import pickle
 import struct
 import random
 import threading
 import time
+import uuid
 import torch
 import torch.distributed as dist
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -136,7 +138,7 @@ class DatasetSpec:
         allow_pure_text_return: bool = False,
         debug: bool = False,
         skip_blob_list: List = None,
-        chunk_processing_pipe: List = None,     
+        chunk_processing_pipe: List = None,
         path_prefix_in_orange: Optional[str] = None,
         use_storage_api: bool = False,
     ):
@@ -167,7 +169,7 @@ class DatasetSpec:
         for data_source in self.data_sources:
             if not os.path.isdir("/datablob1") and self.path_prefix_in_orange is not None:
                 self.adapt_file_paths(data_source)
-            
+
             chunk_list = self.load_manifest_file(data_source)
             if self.is_tsv:
                 n_examples = [len(eval(m)) for m in chunk_list["messages"]]
@@ -213,7 +215,7 @@ class DatasetSpec:
         from megatron.bridge.data.speech_chunk_streaming.blob_chunk_alm.az_downloader import AzureDownloaderConfig, AzureBlobDownloader
 
         AZ_DATA_ACCOUNT = os.environ.get("AZ_DATA_ACCOUNT", "https://highperf01safn.blob.core.windows.net/data/")
-        
+
         self.container_name = Path(AZ_DATA_ACCOUNT).name
         self.account_url = AZ_DATA_ACCOUNT.replace(f"/{self.container_name}", "")
 
@@ -222,7 +224,26 @@ class DatasetSpec:
             container_name=self.container_name,
         )
         self.az_downloader = AzureBlobDownloader(cfg=self.az_cfg, lazy=False)
- 
+
+    @staticmethod
+    def _is_remote_url(path):
+        return isinstance(path, str) and path.startswith(("https://", "http://", "az://"))
+
+    def _resolve_chunk_path(self, path):
+        if self._is_remote_url(path):
+            return path.rstrip("/")
+        if self.path_prefix_in_orange and os.path.isabs(path):
+            path = os.path.join(self.path_prefix_in_orange, *Path(path).parts[2:])
+        if self.use_storage_api and os.path.isabs(path):
+            path = os.path.join(*Path(path).parts[2:])
+        return path.rstrip("/")
+
+    @staticmethod
+    def _join_chunk_path(path, filename):
+        if DatasetSpec._is_remote_url(path):
+            return f"{path.rstrip('/')}/{filename}"
+        return os.path.join(path, filename)
+
     def adapt_file_paths(self, data_source):
         if self.path_prefix_in_orange is not None:
             # replace the first part under root with the prefix
@@ -281,7 +302,7 @@ class DatasetSpec:
     @backoff.on_exception(backoff.expo, Exception, max_tries=5)
     def load_manifest_file(self, data_source, n_chunks=-1):
         full_path = data_source["manifest_file"]
-        
+
         if self.is_tsv:
             col_names = ["id", "wav_paths", "messages"]
             if n_chunks == -1:
@@ -328,10 +349,10 @@ class DatasetSpec:
             file_handle = self.az_downloader.download_to_buffer(blob_name, concurrency=concurrency)
         else:
             file_handle = bf.BlobFile(blob_name, "rb") if self.path_prefix_in_orange is not None else open(blob_name, "rb")
-        
+
         with file_handle as f:
             target_type = f.read(len(chunk_type.encode())).decode()
-            
+
             if chunk_type.lower() != target_type.lower():
                 raise ValueError(f"Target type is not expected in {blob_name}, expected {chunk_type}, but got {target_type}")
             version_number = int.from_bytes(f.read(4), byteorder=ENDIAN)
@@ -361,15 +382,15 @@ class DatasetSpec:
                 i += 1
 
         return example_list
-    
+
     def safe_read(self, wav_path, read_blob_file=False):
         """Read wav file, return None if failed"""
         try:
             if self.use_storage_api:
-                wav_path = os.path.join(*Path(wav_path).parts[2:])
+                wav_path = self._resolve_chunk_path(wav_path)
                 byte_stream = self.az_downloader.download_to_buffer(wav_path, concurrency=None)
                 return sf.read(byte_stream)
-            
+
             if read_blob_file:
                 with bf.BlobFile(wav_path, "rb") as f:
                     return sf.read(f)
@@ -403,10 +424,8 @@ class DatasetSpec:
             for i in range(len(chunk_list["wav_paths"])):
                 chunk_data = {}
                 wav_paths = eval(chunk_list["wav_paths"][i])
-                if self.path_prefix_in_orange:
-                    # replace the first part under root with the prefix
-                    wav_paths = [os.path.join(self.path_prefix_in_orange, *Path(p).parts[2:]) for p in wav_paths]
-                
+                wav_paths = [self._resolve_chunk_path(p) for p in wav_paths]
+
                 if self.allow_pure_text_return:
                     chunk_data["audios"] = [("placeholder", 16000) for _ in wav_paths]
                 else:
@@ -427,23 +446,16 @@ class DatasetSpec:
             additional_data_path = data_source.get("additional_data_path", data_source.get("additional_path", {}))
             chunk_size = chunk_list[actual_index]["count"]
             all_chunk_data = [{} for _ in range(chunk_size)]
-            
+
             for extension in chunk_type:
                 if extension in ["transcription", "sft"]:
                     trans_path = trans_path if trans_path is not None else chunk_path
                     path = additional_data_path.get(extension, trans_path)
                 else:
                     path = additional_data_path.get(extension, chunk_path)
-                
-                if self.path_prefix_in_orange:
-                    # replace the first part under root with the prefix
-                    path = os.path.join(self.path_prefix_in_orange, *Path(path).parts[2:])
-                
-                if self.use_storage_api:
-                    path_parts = list(Path(path).parts)[2:]
-                    path = os.path.join(*path_parts)
 
-                blob_name = os.path.join(path, chunk_name + "." + extension)
+                path = self._resolve_chunk_path(path)
+                blob_name = self._join_chunk_path(path, chunk_name + "." + extension)
 
                 try:
                     chunk_data = self.load_chunk_with_chunkname(blob_name, extension, chunk_size)
@@ -728,6 +740,9 @@ class _BlobChunkIterableDatasetIterator:
 
         self.example_buffer = []
         self.example_buffer_permutation = None
+        self.spill_dir = os.environ.get("BLOBCHUNK_SPILL_DIR")
+        if self.spill_dir:
+            os.makedirs(self.spill_dir, exist_ok=True)
 
     def __next__(self):
         worker_step_this_sweep = self.worker_step_in_epoch % self.worker_total_num_examples
@@ -740,6 +755,9 @@ class _BlobChunkIterableDatasetIterator:
         data_exhausted = False
         if self.resuming_from_checkpoint or example_index == 0:
             data_exhausted = self._replenish_example_buffer()
+            if self.resuming_from_checkpoint and not data_exhausted:
+                for consumed_index in range(example_index):
+                    self.example_buffer[self.example_buffer_permutation[consumed_index]] = None
             self.resuming_from_checkpoint = False
 
         if not data_exhausted and len(self.example_buffer) == 0:
@@ -759,11 +777,35 @@ class _BlobChunkIterableDatasetIterator:
 
         self.worker_step_in_epoch += 1
         example = self.example_buffer[shuffled_example_index]
-
+        self.example_buffer[shuffled_example_index] = None
+        if isinstance(example, _SpilledChunkSample):
+            example = example.load()
         return example
 
     def __iter__(self):
         return self
+
+    def _spill_chunk(self, examples):
+        if not self.spill_dir or not examples:
+            return examples
+        # An unlinked file in the explicitly configured cache directory is reclaimed with the
+        # last sample reference, including when a worker exits during shuffle-buffer warmup.
+        path = os.path.join(self.spill_dir, f"blobchunk-{uuid.uuid4().hex}")
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+        stream = os.fdopen(fd, "w+b")
+        try:
+            os.unlink(path)
+            spilled = []
+            for index in range(len(examples)):
+                offset = stream.tell()
+                pickle.dump(examples[index], stream, protocol=pickle.HIGHEST_PROTOCOL)
+                examples[index] = None
+                spilled.append(_SpilledChunkSample(stream, offset))
+            stream.flush()
+            return spilled
+        except BaseException:
+            stream.close()
+            raise
 
     def _replenish_example_buffer(self):
         worker_step_this_sweep = self.worker_step_in_epoch % self.worker_total_num_examples
@@ -781,6 +823,8 @@ class _BlobChunkIterableDatasetIterator:
             len(self.worker_accum_permuted_chunk_sizes) - worker_chunk_index_starts_from,
         )
 
+        self.example_buffer = []
+        self.example_buffer_permutation = None
         if self.multi_threaded_download:
             # Helper to submit chunk read jobs
             first_global_chunk_index = [0]
@@ -797,7 +841,11 @@ class _BlobChunkIterableDatasetIterator:
                     first_global_chunk_index[0] = global_chunk_index
                 if global_chunk_index is None:  # chunks exhausted:
                     return []
-                return self.dataset_spec.load_chunk(global_chunk_index)
+                examples = self.dataset_spec.load_chunk(global_chunk_index)
+                try:
+                    return self._spill_chunk(examples)
+                except Exception as error:
+                    raise _ChunkSpillError("Unable to stage decoded chunk in the configured cache directory") from error
 
             # Launch multi-threaded chunk reads
             max_workers = min(this_num_chunks_for_shuffling, _get_env_int("BLOBCHUNK_DOWNLOAD_MAX_WORKERS", 4))
@@ -810,6 +858,8 @@ class _BlobChunkIterableDatasetIterator:
                     i = future_to_idx[fut]
                     try:
                         examples = fut.result()
+                    except _ChunkSpillError:
+                        raise
                     except Exception as e:
                         logging.warning(f"Failed to load chunk {i}: {e}")
                         examples = []
@@ -826,7 +876,7 @@ class _BlobChunkIterableDatasetIterator:
             if len(self.example_buffer) == 0:
                 # data exhausted or all chunks failed
                 return True
-            
+
             # compute permutation used to shuffle examples in example buffer
             seed = self.seed + (self.worker_step_in_epoch // self.worker_total_num_examples) * self.total_chunks + first_global_chunk_index[0]
             self.example_buffer_permutation = KenslerPermutation(len(self.example_buffer), seed=seed)
@@ -858,11 +908,11 @@ class _BlobChunkIterableDatasetIterator:
             del thread_results
             # compute permutation used to shuffle examples in example buffer
             seed = self.seed + (self.worker_step_in_epoch // self.worker_total_num_examples) * self.total_chunks + first_global_chunk_index
-        
+
             self.example_buffer_permutation = KenslerPermutation(len(self.example_buffer), seed=seed)
             return False  # there are still remaining data
 
-        
+
 
     def _read_chunk(self, chunk_index: int, thread_id: int, thread_results: List):
         if self.dummy_data_mode:
@@ -874,7 +924,23 @@ class _BlobChunkIterableDatasetIterator:
             )
         else:
             examples = self.dataset_spec.load_chunk(chunk_index)
-        thread_results[thread_id] = examples
+        thread_results[thread_id] = self._spill_chunk(examples)
+
+
+class _ChunkSpillError(RuntimeError):
+    pass
+
+
+class _SpilledChunkSample:
+    __slots__ = ("stream", "offset")
+
+    def __init__(self, stream, offset):
+        self.stream = stream
+        self.offset = offset
+
+    def load(self):
+        self.stream.seek(self.offset)
+        return pickle.load(self.stream)
 
 
 class ChunkSpeechTextSeq2SeqDataset(IterableDataset):

@@ -62,6 +62,7 @@ def speech_cascades_finetune_config(
     # Real streaming speech data (mutually exclusive with train_shards)
     streaming_config_yaml: Optional[str] = None,
     streaming_force_local: bool = False,
+    streaming_use_storage_api: bool | None = None,
     streaming_token_budget: Optional[int] = None,
     streaming_num_workers: int = 1,
     streaming_prefetch_factor: int = 16,
@@ -113,6 +114,8 @@ def speech_cascades_finetune_config(
         load_hf_weights: When ``True`` load the ``hf_path`` weights into the model at build time
             (cold-start directly from the converted HF directory, no Megatron conversion needed).
         val_shards: Optional validation shards.
+        streaming_use_storage_api: Optional transport override without rewriting the source data
+            config. ``None`` respects native entries; ``True`` requires ``streaming_force_local=False``.
 
     Returns:
         A fully populated :class:`ConfigContainer` for ``finetune`` / ``pretrain``.
@@ -162,6 +165,7 @@ def speech_cascades_finetune_config(
             seq_length=seq_length,
             speech_config_yaml=streaming_config_yaml,
             force_local=streaming_force_local,
+            use_storage_api=streaming_use_storage_api,
             token_budget_override=streaming_token_budget,
             num_workers=streaming_num_workers,
             prefetch_factor=streaming_prefetch_factor,
@@ -244,6 +248,7 @@ def speech_cascades_s2_kd_config(
     *,
     streaming_config_yaml: str,
     streaming_force_local: bool = False,
+    streaming_use_storage_api: bool | None = None,
     streaming_token_budget: Optional[int] = None,
     streaming_num_workers: int = 1,
     streaming_prefetch_factor: int = 16,
@@ -310,6 +315,7 @@ def speech_cascades_s2_kd_config(
     Args:
         hf_path: Converted stage-1 HF directory (model config; weights via ``load_hf_weights``).
         streaming_config_yaml: S2 KD streaming data config (``knowledge_distillation: True``).
+        streaming_use_storage_api: Optional transport-only override; ``None`` respects native entries.
         phase: ``"warm"`` or ``"full"``.
         init_checkpoint: Warm-phase Megatron checkpoint to initialize the full phase from.
 
@@ -332,6 +338,7 @@ def speech_cascades_s2_kd_config(
         load_hf_weights=load_hf_weights,
         streaming_config_yaml=streaming_config_yaml,
         streaming_force_local=streaming_force_local,
+        streaming_use_storage_api=streaming_use_storage_api,
         streaming_token_budget=streaming_token_budget,
         streaming_num_workers=streaming_num_workers,
         streaming_prefetch_factor=streaming_prefetch_factor,
@@ -365,6 +372,9 @@ def speech_cascades_s2_kd_config(
     # Encoder frozen (trained in stage-1); projector + MTP heads remain trainable.
     model_cfg.freeze_audio_encoder = True
     model_cfg.knowledge_distillation = True
+    # Frozen routers must not add an input-gradient objective on top of the requested KL/CE loss.
+    model_cfg.moe_router_load_balancing_type = "none"
+    model_cfg.moe_aux_loss_coeff = 0.0
     model_cfg.distillation_weight = distillation_weight
     model_cfg.distillation_temperature = distillation_temperature
     model_cfg.distillation_kl_chunk_size = distillation_kl_chunk_size

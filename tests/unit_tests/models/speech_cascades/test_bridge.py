@@ -14,15 +14,19 @@
 
 import importlib.util
 import json
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
+import pytest
 import torch
 
 from megatron.bridge.models.speech_cascades.bridge import SpeechCascadesBridge
 
 
-_CONVERTER = Path(__file__).resolve().parents[4] / "examples" / "conversion" / "convert_speech_cascades_stage1_to_hf.py"
+_CONVERTER = (
+    Path(__file__).resolve().parents[4] / "examples" / "conversion" / "convert_speech_cascades_stage1_to_hf.py"
+)
 
 
 def _load_converter():
@@ -109,3 +113,95 @@ def test_converter_preserves_moe_model_type(tmp_path: Path) -> None:
     assert hidden_size == 2048
     assert converted["model_type"] == "qwen3_5_moe_text"
     assert converted["architectures"] == ["Qwen3_5SpeechCascadesForConditionalGeneration"]
+
+
+def _load_exporter():
+    path = _CONVERTER.parents[1] / "models" / "speech_cascades" / "export_hf.py"
+    spec = importlib.util.spec_from_file_location("_speech_cascades_exporter", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.unit
+def test_exporter_loads_trained_checkpoint(tmp_path, monkeypatch):
+    from megatron.bridge import AutoBridge
+
+    checkpoint = tmp_path / "iter_0004000"
+    checkpoint.mkdir()
+    for filename in (".metadata", "run_config.yaml"):
+        (checkpoint / filename).touch()
+    output = tmp_path / "export"
+    bridge = Mock()
+    monkeypatch.setattr(AutoBridge, "from_hf_pretrained", Mock(return_value=bridge))
+    monkeypatch.setattr(
+        "sys.argv", ["export_hf", "--hf-dir", "initial", "--checkpoint", str(checkpoint), "--output", str(output)]
+    )
+
+    _load_exporter().main()
+
+    bridge.export_ckpt.assert_called_once_with(str(checkpoint), str(output), strict=True, source_path="initial")
+    bridge.to_megatron_model.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["missing_metadata", "missing_config", "nonempty_output", "initial_vllm"])
+def test_exporter_rejects_unsafe_inputs(tmp_path, monkeypatch, case):
+    checkpoint = tmp_path / "iter_0004000"
+    checkpoint.mkdir()
+    for filename in (".metadata", "run_config.yaml"):
+        (checkpoint / filename).touch()
+    output = tmp_path / "export"
+    argv = ["export_hf", "--hf-dir", "initial", "--output", str(output)]
+    if case == "initial_vllm":
+        argv.append("--vllm")
+    else:
+        argv.extend(["--checkpoint", str(checkpoint)])
+        if case == "missing_metadata":
+            (checkpoint / ".metadata").unlink()
+        elif case == "missing_config":
+            (checkpoint / "run_config.yaml").unlink()
+        else:
+            output.mkdir()
+            (output / "existing.safetensors").touch()
+    monkeypatch.setattr("sys.argv", argv)
+
+    with pytest.raises(SystemExit) as error:
+        _load_exporter().main()
+    assert error.value.code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("retain_mtp", [False, True])
+@pytest.mark.parametrize("model_type", ["qwen3_5_text", "qwen3_5_moe_text"])
+def test_vllm_metadata_preserves_audio_and_weights(tmp_path, retain_mtp, model_type):
+    base = tmp_path / "base"
+    output = tmp_path / "export"
+    base.mkdir()
+    output.mkdir()
+    (base / "config.json").write_text(
+        json.dumps({"text_config": {"hidden_size": 2560, "model_type": model_type, "mtp_num_hidden_layers": 1}})
+    )
+    _load_converter()._write_config(base, output, num_blocks=24)
+    original = json.loads((output / "config.json").read_text())
+    weight_map = {"model.embed_tokens_extend.audio_projection.0.weight": "model.safetensors"}
+    if retain_mtp:
+        weight_map["mtp.layers.0.mlp.down_proj.weight"] = "model.safetensors"
+    index = json.dumps({"weight_map": weight_map})
+    (output / "model.safetensors.index.json").write_text(index)
+
+    _load_exporter().prepare_vllm_config(output)
+
+    converted = json.loads((output / "config.json").read_text())
+    assert converted["architectures"] == ["Qwen3_5AudioForCausalLM"]
+    assert converted["embd_layer"] == {**original["embd_layer"], "embedding_cls": "audio"}
+    assert converted["audio_processor"] == original["audio_processor"]
+    assert converted["n_embd"] == 2560
+    assert converted["mtp_num_hidden_layers"] == int(retain_mtp)
+    assert (output / "model.safetensors.index.json").read_text() == index
+
+
+@pytest.mark.unit
+def test_vllm_metadata_rejects_unsupported_backbone(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps({"model_type": "unsupported"}))
+    with pytest.raises(ValueError, match="qwen3_5_text or qwen3_5_moe_text"):
+        _load_exporter().prepare_vllm_config(tmp_path)

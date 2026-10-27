@@ -144,8 +144,7 @@ class DatasetSpec(BaseDatasetSpec):
         all_chunk_data = []
         for i in range(len(chunk_list["wav_paths"])):
             wav_paths = eval(chunk_list["wav_paths"][i])
-            if self.path_prefix_in_orange:
-                wav_paths = [os.path.join(self.path_prefix_in_orange, *Path(p).parts[2:]) for p in wav_paths]
+            wav_paths = [self._resolve_chunk_path(p) for p in wav_paths]
 
             if self.allow_pure_text_return:
                 audios = [("placeholder", 16000) for _ in wav_paths]
@@ -191,11 +190,8 @@ class DatasetSpec(BaseDatasetSpec):
                 path = additional_data_path.get(extension, trans_path)
             else:
                 path = additional_data_path.get(extension, chunk_path)
-            if self.path_prefix_in_orange:
-                path = os.path.join(self.path_prefix_in_orange, *Path(path).parts[2:])
-            if self.use_storage_api:
-                path = os.path.join(*Path(path).parts[2:])
-            blob_name = os.path.join(path, chunk_name + "." + extension)
+            path = self._resolve_chunk_path(path)
+            blob_name = self._join_chunk_path(path, chunk_name + "." + extension)
 
             try:
                 chunk_data = self.load_chunk_with_chunkname(blob_name, extension, chunk_size)
