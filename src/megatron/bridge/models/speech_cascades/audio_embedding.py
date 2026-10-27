@@ -29,9 +29,17 @@ import torch.nn.functional as F
 from torch import nn
 
 from megatron.bridge.models.speech_cascades.encoder import ConformerEncoder
+from megatron.bridge.models.speech_cascades.encoder.audio_blocks.cascade_encoder.utils import MultiHeadedAttention
 
 
 _FULL_MODEL_AUDIO_PREFIX = "model.embed_tokens_extend."
+
+
+def _release_attention_map(
+    module: MultiHeadedAttention, _inputs: tuple[object, ...], _output: torch.Tensor | None
+) -> None:
+    # The vendored manual kernel saves a diagnostic O(B*H*T*T) map on every layer.
+    module.attn = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +59,7 @@ class CascadesAudioEmbedding(nn.Module):
         projection_cls: ``"mlp"`` (Linear-GELU-Linear) or ``"linear"`` (single Linear).
         compression_rate: Pre-encoder frame padding multiple factor from the run config.
         downsample_rate: Post-encoder temporal downsample factor for the projection input.
+        retain_attention_maps: Keep the vendored encoder's diagnostic attention maps.
     """
 
     def __init__(
@@ -61,6 +70,7 @@ class CascadesAudioEmbedding(nn.Module):
         projection_cls: str = "mlp",
         compression_rate: int = 1,
         downsample_rate: int = 1,
+        retain_attention_maps: bool = True,
     ) -> None:
         super().__init__()
         if projection_cls not in ("mlp", "linear"):
@@ -69,6 +79,10 @@ class CascadesAudioEmbedding(nn.Module):
         self.encoder = ConformerEncoder(**encoder_config)
         # Build the CMVN layer so encoder weights (including nested encoder_embedding) can be loaded.
         self.encoder.post_init({})
+        if not retain_attention_maps:
+            for module in self.encoder.modules():
+                if isinstance(module, MultiHeadedAttention):
+                    module.register_forward_hook(_release_attention_map, always_call=True)
 
         self.audio_dim_out = encoder_config["attention_dim"]
         self.hidden_size = hidden_size
@@ -128,9 +142,7 @@ class CascadesAudioEmbedding(nn.Module):
 
         return self.audio_projection(audio_features)
 
-    def forward(
-        self, input_embeds: torch.Tensor, audio_attention_mask: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def forward(self, input_embeds: torch.Tensor, audio_attention_mask: torch.Tensor | None = None) -> torch.Tensor:
         return self.get_audio_features(input_embeds, audio_attention_mask)
 
     def load_full_model_weights(
@@ -148,9 +160,7 @@ class CascadesAudioEmbedding(nn.Module):
         encoder_prefix = prefix + "encoder."
         projection_prefix = prefix + "audio_projection."
         encoder_state = OrderedDict(
-            (key[len(encoder_prefix) :], value)
-            for key, value in state_dict.items()
-            if key.startswith(encoder_prefix)
+            (key[len(encoder_prefix) :], value) for key, value in state_dict.items() if key.startswith(encoder_prefix)
         )
         projection_state = OrderedDict(
             (key[len(projection_prefix) :], value)

@@ -103,6 +103,12 @@ def main() -> None:
         help="Training/model config yaml (recipe hyperparameters). CLI flags override yaml values.",
     )
     parser.add_argument("--streaming-force-local", action="store_true", help="Read streaming data from mounts.")
+    parser.add_argument(
+        "--streaming-use-storage-api",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override runtime storage transport without rewriting the source data config.",
+    )
     parser.add_argument("--streaming-token-budget", type=int, default=None, help="Override per-batch frame budget.")
     parser.add_argument("--streaming-num-workers", type=int, default=1)
     parser.add_argument("--streaming-prefetch-factor", type=int, default=16)
@@ -126,6 +132,9 @@ def main() -> None:
     parser.add_argument("--expert-model-parallel-size", type=int, default=1)
     parser.add_argument("--expert-tensor-parallel-size", type=int, default=1)
     parser.add_argument("--train-iters", type=int, default=None, help="Iterations (defaults per recipe/phase).")
+    parser.add_argument(
+        "--exit-interval", type=int, default=None, help="Save and exit early without shortening the LR schedule."
+    )
     parser.add_argument("--global-batch-size", type=int, default=8)
     parser.add_argument("--micro-batch-size", type=int, default=1)
     parser.add_argument("--seq-length", type=int, default=8192)
@@ -134,6 +143,7 @@ def main() -> None:
     parser.add_argument("--lr-warmup-iters", type=int, default=None, help="LR warmup (defaults per recipe).")
     parser.add_argument("--log-interval", type=int, default=10, help="Console/MLflow logging cadence.")
     parser.add_argument("--timing-log-level", type=int, choices=[0, 1, 2], default=1)
+    parser.add_argument("--overlap-grad-reduce", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--lora-rank", type=int, default=None)
     parser.add_argument("--lora-alpha", type=int, default=None)
     parser.add_argument("--lora-dropout", type=float, default=0.1)
@@ -161,6 +171,8 @@ def main() -> None:
     args = parser.parse_args()
 
     _apply_train_config_yaml(args, parser)
+    if args.exit_interval is not None and args.exit_interval <= 0:
+        parser.error("--exit-interval must be positive")
 
     peft = None
     if args.lora_rank is not None:
@@ -194,6 +206,7 @@ def main() -> None:
             hf_path=args.hf_path,
             streaming_config_yaml=args.streaming_config_yaml,
             streaming_force_local=args.streaming_force_local,
+            streaming_use_storage_api=args.streaming_use_storage_api,
             streaming_token_budget=args.streaming_token_budget,
             streaming_num_workers=args.streaming_num_workers,
             streaming_prefetch_factor=args.streaming_prefetch_factor,
@@ -232,6 +245,7 @@ def main() -> None:
             val_shards=args.val_shards,
             streaming_config_yaml=args.streaming_config_yaml,
             streaming_force_local=args.streaming_force_local,
+            streaming_use_storage_api=args.streaming_use_storage_api,
             streaming_token_budget=args.streaming_token_budget,
             streaming_num_workers=args.streaming_num_workers,
             streaming_prefetch_factor=args.streaming_prefetch_factor,
@@ -260,6 +274,10 @@ def main() -> None:
         )
     if args.attention_backend is not None:
         cfg.model.attention_backend = args.attention_backend
+    if args.overlap_grad_reduce is not None:
+        cfg.ddp.overlap_grad_reduce = args.overlap_grad_reduce
+    if args.exit_interval is not None:
+        cfg.train.exit_interval = args.exit_interval
     # With --load-hf-weights the provider already bakes weights into the model at build time,
     # so no checkpoint load is required; pretrain() still auto-resumes from checkpoint.load if
     # a prior iteration exists. finetune() (which hard-requires a checkpoint source) is used only

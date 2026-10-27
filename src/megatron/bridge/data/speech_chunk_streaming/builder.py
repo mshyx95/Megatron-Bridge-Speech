@@ -65,9 +65,11 @@ def build_speech_chunk_dataset(
     dataset_entries: list[dict],
     rank: int = 0,
     world_size: int = 1,
-    force_local: bool = True,
+    force_local: bool = False,
 ) -> Any:
     """Build the (weighted, streaming) training dataset from resolved config entries.
+
+    Storage-API settings are preserved unless mounted-file reading is explicitly requested.
 
     Each entry is dispatched to a provider via its ``dataset_provider`` key (see
     ``DATASET_PROVIDER_REGISTRY``), so a single weighted stream can mix heterogeneous

@@ -40,5 +40,5 @@ uv run python examples/conversion/hf_to_megatron_generate_text.py \
 
 ## Related Implementation
 
-- Bridge implementation: [`src/megatron/bridge/models/gemma/gemma_bridge.py`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/blob/main/src/megatron/bridge/models/gemma/gemma_bridge.py)
+- Bridge implementation (v0.4.2): [`src/megatron/bridge/models/gemma/gemma_bridge.py`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/blob/v0.4.2/src/megatron/bridge/models/gemma/gemma_bridge.py)
 - Conversion examples: [`examples/conversion`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/conversion)

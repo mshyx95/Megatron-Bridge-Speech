@@ -25,6 +25,7 @@ Acceptance (``acceptance_baseline.yaml`` encoder gate): ``bf16_max_absolute_diff
 
 import os
 
+import numpy as np
 import pytest
 
 
@@ -104,3 +105,77 @@ def test_audio_embedding_reproduces_m3_reference():
     assert tuple(output.shape) == tuple(reference.shape)
     max_abs_diff = float((output.float() - reference.float()).abs().max())
     assert max_abs_diff <= _MAX_ABS_DIFF, f"max_abs_diff={max_abs_diff} exceeds {_MAX_ABS_DIFF}"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+@pytest.mark.parametrize("production_attention", [False, True])
+def test_releasing_23_encoder_attention_maps_reduces_live_cuda_memory(record_property, production_attention):
+    from megatron.bridge.models.speech_cascades.conversion import DEFAULT_AUDIO_CONFIG
+    from megatron.bridge.models.speech_cascades.encoder.audio_blocks.cascade_encoder.utils import MultiHeadedAttention
+
+    config = {
+        **_PROD_ENCODER_CONFIG,
+        "attention_dim": 80,
+        "linear_units": 160,
+        "num_blocks": 23,
+        "cnn_out": 32,
+    }
+    if production_attention:
+        config = {
+            **DEFAULT_AUDIO_CONFIG,
+            "attention_dim": 64,
+            "linear_units": 128,
+            "depthwise_seperable_out_channel": 64,
+            "ext_pw_out_channel": 64,
+            "nemo_conv_settings": {"conv_channels": 64},
+        }
+    batch_size = 4 if production_attention else 1
+    inputs = torch.randn(batch_size, 16384, 80, device="cuda", dtype=torch.bfloat16)
+    masks = torch.ones(batch_size, 16384, device="cuda", dtype=torch.long)
+    measurements = {}
+    outputs = {}
+    gradients = {}
+    peaks = {}
+    for retain_maps in (True, False):
+        torch.manual_seed(11)
+        model = CascadesAudioEmbedding(config, hidden_size=32, retain_attention_maps=retain_maps)
+        model = model.cuda().to(torch.bfloat16).train()
+        model.encoder.requires_grad_(False)
+        torch.cuda.reset_peak_memory_stats()
+        measurements[retain_maps] = []
+        outputs[retain_maps] = []
+        gradients[retain_maps] = []
+        for length in (16384, 8192, 12288):
+            model.zero_grad(set_to_none=True)
+            torch.manual_seed(length)
+            np.random.seed(length)
+            output = model(inputs[:, :length].clone(), masks[:, :length].clone())
+            output.square().mean().backward()
+            outputs[retain_maps].append(output.detach().cpu())
+            gradients[retain_maps].append(
+                {name: value.grad.cpu().clone() for name, value in model.audio_projection.named_parameters()}
+            )
+            del output
+            maps = [module.attn for module in model.encoder.modules() if isinstance(module, MultiHeadedAttention)]
+            assert len(maps) == 23
+            cache_bytes = sum(
+                value.numel() * value.element_size() for value in maps if isinstance(value, torch.Tensor)
+            )
+            assert (cache_bytes > 0) == retain_maps
+            del maps
+            torch.cuda.synchronize()
+            measurements[retain_maps].append((torch.cuda.memory_allocated(), cache_bytes))
+        peaks[retain_maps] = torch.cuda.max_memory_allocated()
+        del model
+        torch.cuda.empty_cache()
+    for index in range(3):
+        torch.testing.assert_close(outputs[True][index], outputs[False][index], rtol=0, atol=0)
+        for name, gradient in gradients[True][index].items():
+            torch.testing.assert_close(gradient, gradients[False][index][name], rtol=0, atol=0, msg=name)
+        before, cache_bytes = measurements[True][index]
+        after, _ = measurements[False][index]
+        assert before - after >= cache_bytes * 0.95
+    assert peaks[True] - peaks[False] >= measurements[True][0][1] * 0.8
+    record_property("retained_vs_released_live_bytes", str(measurements))
+    record_property("retained_peak_bytes", peaks[True])
+    record_property("released_peak_bytes", peaks[False])

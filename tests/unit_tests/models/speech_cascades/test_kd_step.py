@@ -36,6 +36,10 @@ class _FakeLanguageModel(nn.Module):
     def __init__(self, hidden: int, vocab: int) -> None:
         super().__init__()
         self.head = nn.Parameter(torch.randn(vocab, hidden) * 0.02)
+        self.share_embeddings_and_output_weights = True
+
+    def _scale_logits(self, logits):
+        return logits
 
     def shared_embedding_or_output_weight(self) -> torch.Tensor:
         return self.head
@@ -157,6 +161,20 @@ def test_mixing_reduces_to_ce_and_pure_kl_at_limits():
     # w -> 0 is the existing masked CE; w -> 1 is the per-token-mean KL scaled by num_tokens.
     assert torch.isclose(total_ce, ce_sum, atol=1e-5)
     assert torch.isclose(total_kl, kl * num_tokens, atol=1e-5)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("weight", [0.0, 0.75, 1.0])
+def test_kd_reports_actual_optimized_loss(weight):
+    mask = torch.tensor([[1.0, 1.0, 0.0]], device=DEVICE)
+    ce = torch.tensor([[4.0, 6.0, 99.0]], device=DEVICE, requires_grad=True)
+    kl = torch.tensor(0.25, device=DEVICE, requires_grad=True)
+    total, tokens, reporting = _kd_loss_function(mask, kl, weight, False, False, ce)
+    assert tokens.item() == 2
+    assert torch.isclose(reporting["lm loss"][0], total.detach())
+    assert reporting["ce loss"].tolist() == [10.0, 2.0]
+    assert reporting["kl loss"].tolist() == [0.5, 2.0]
+    assert all(not value.requires_grad for value in reporting.values())
 
 
 def test_misaligned_response_labels_raise():
