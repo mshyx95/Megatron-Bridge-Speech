@@ -131,3 +131,15 @@ explicit root authorization; do not enable that on a shared bare-metal host.
 
 The two-GPU sequence-parallel checkpoint test and encoder parity test are separate
 functional gates; CPU success must not be presented as their GPU qualification.
+
+## CI on public forks
+
+The optional Claude review integration runs only in the official
+`NVIDIA-NeMo/Megatron-Bridge` repository because it requires NVIDIA's private SSO
+roster and inference credentials. Public forks skip this integration, not the
+secrets detector or other validation workflows.
+
+The secrets baseline records reviewed false positives for source SHA-256 hashes,
+pinned upstream revisions and a mock credential-bearing URL used to test endpoint
+rejection. These entries are bound to their file and value; detector rules and
+file exclusions are unchanged.
