@@ -337,7 +337,12 @@ class BlobChunkALMSampleProcessor:
 
         if sample_processing_state["illegal_word_list"] is not None and not illegal_word_filter(sample, sample_processing_state["illegal_word_list"]):
             return None
-        assert "<abnormal>" not in sample["transcription"]
+        if "<abnormal>" in sample["transcription"]:
+            logger.warning(
+                "Dropping invalid <abnormal> transcription: spec=%s profile=%s language=%s",
+                sample.get("_spec_file"), sample.get("_sample_profile_id"), sample.get("language"),
+            )
+            return None
 
         target = sample["transcription"]
         if "answer" in sample:

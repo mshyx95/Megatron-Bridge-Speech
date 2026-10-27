@@ -28,10 +28,16 @@ class CharacterTokenizer:
 
 def processor():
     return BlobChunkALMSampleProcessor(
-        tokenizer=CharacterTokenizer(), audio_processor=None, feat_stride=1,
-        input_key="feature", final_audio_key="features", allow_pure_text_return=False,
-        retain_first_n_turns_in_conversation=None, default_filter_options={},
-        default_text_normalization=None, default_sp_transcription=False,
+        tokenizer=CharacterTokenizer(),
+        audio_processor=None,
+        feat_stride=1,
+        input_key="feature",
+        final_audio_key="features",
+        allow_pure_text_return=False,
+        retain_first_n_turns_in_conversation=None,
+        default_filter_options={},
+        default_text_normalization=None,
+        default_sp_transcription=False,
         compute_audio_embed_size=lambda frames: (frames - 7) // 8,
     )
 
@@ -52,13 +58,41 @@ def test_processor_separates_rewrite_answer_from_transcript(answer):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("answer", [None, "Generated answer."])
+def test_processor_drops_abnormal_transcript_before_teacher_or_target_encoding(answer, caplog):
+    instance = processor()
+    sample = {
+        "transcription": "invalid <abnormal> speech",
+        "language": "hi",
+        "_spec_file": "source.json",
+        "_sample_profile_id": "test-profile",
+    }
+    if answer is not None:
+        sample["answer"] = answer
+    state = instance.resolve_sample_processing_state(sample)
+    assert instance.apply_transcription_processing(sample, state) is None
+    assert "label" not in sample and "audio_transcripts" not in sample
+    assert "Dropping invalid <abnormal> transcription" in caplog.text
+    assert "source.json" in caplog.text
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("mode", ["audio-only", "audio-question", "text-question"])
 def test_sft_answer_overlay_retains_original_transcript(mode):
     instance = processor()
     user = "Context: <|audio_0|>" if mode != "text-question" else "Where is Paris?"
-    sample = {"sft": [{"answer_overlay_mode": mode, "messages": [
-        {"role": "user", "content": user}, {"role": "assistant", "content": "Where is Paris?"},
-    ]}], "answer": "In France."}
+    sample = {
+        "sft": [
+            {
+                "answer_overlay_mode": mode,
+                "messages": [
+                    {"role": "user", "content": user},
+                    {"role": "assistant", "content": "Where is Paris?"},
+                ],
+            }
+        ],
+        "answer": "In France.",
+    }
     original = deepcopy(sample)
     result = instance.prepare_multiaudio_sample(sample, instance.resolve_sample_processing_state(sample))
     assert result["sft"][0]["messages"][-1]["content"] == "In France."
@@ -72,8 +106,10 @@ def test_sft_answer_overlay_retains_original_transcript(mode):
 def test_dataset_kd_preparation_rejects_missing_rewrite_transcript():
     dataset = object.__new__(BlobChunkALMDataset)
     dataset.transforms = AudioTextConversationTransform(
-        {"pad_to_context_length": False}, conv_template="qwen3_audio_instruct",
-        prompt_formatter="audio-response", knowledge_distillation=True,
+        {"pad_to_context_length": False},
+        conv_template="qwen3_audio_instruct",
+        prompt_formatter="audio-response",
+        knowledge_distillation=True,
     )
     example = {"annotations": ["Paris."], "audio_embed_sizes": [3], "language": "en"}
     assert not dataset._prepare_example_for_distillation(example)
@@ -85,8 +121,10 @@ def test_dataset_kd_preparation_rejects_missing_rewrite_transcript():
 def test_dataset_producer_preserves_teacher_fields():
     dataset = object.__new__(BlobChunkALMDataset)
     dataset.transforms = AudioTextConversationTransform(
-        {"pad_to_context_length": False}, conv_template="qwen3_audio_instruct",
-        prompt_formatter="audio-response", knowledge_distillation=True,
+        {"pad_to_context_length": False},
+        conv_template="qwen3_audio_instruct",
+        prompt_formatter="audio-response",
+        knowledge_distillation=True,
     )
     dataset.tokenize = CharacterTokenizer()
     dataset._prefetch_stop = False
@@ -94,6 +132,7 @@ def test_dataset_producer_preserves_teacher_fields():
     dataset._final_audio_key = "features"
     dataset.allow_pure_text_return = False
     dataset.get_max_prompt_len = lambda: 0
+
     class AudioIterator:
         epoch = 0
         worker_step_in_epoch = 0
@@ -106,9 +145,13 @@ def test_dataset_producer_preserves_teacher_fields():
 
     dataset.audio_dataset = AudioIterator()
     example = {
-        "features": [torch.zeros(80, 80)], "annotations": ["Paris."],
-        "audio_transcripts": ["Where is the Eiffel Tower?"], "audio_embed_sizes": [3],
-        "audio_frames": [80], "user_prompt": None, "language": "en",
+        "features": [torch.zeros(80, 80)],
+        "annotations": ["Paris."],
+        "audio_transcripts": ["Where is the Eiffel Tower?"],
+        "audio_embed_sizes": [3],
+        "audio_frames": [80],
+        "user_prompt": None,
+        "language": "en",
     }
     dataset._fill_buffer_by_length = lambda buffer, length: buffer.append(deepcopy(example))
     dataset._create_batch_list = lambda: ([[deepcopy(example)]], [deepcopy(example)])
@@ -189,7 +232,8 @@ def test_collator_never_infers_rewrite_transcript_from_answer():
 
 @pytest.mark.unit
 @pytest.mark.parametrize("kd_enabled", [False, True])
-def test_streaming_provider_forwards_kd_to_transform(monkeypatch, tmp_path, kd_enabled):
+@pytest.mark.parametrize("storage_override", [None, True])
+def test_streaming_provider_forwards_kd_to_transform(monkeypatch, tmp_path, kd_enabled, storage_override):
     from omegaconf import OmegaConf
     from transformers import AutoTokenizer
 
@@ -197,12 +241,19 @@ def test_streaming_provider_forwards_kd_to_transform(monkeypatch, tmp_path, kd_e
     from megatron.bridge.data.speech_chunk.streaming_provider import SpeechChunkStreamingDatasetProvider
 
     entries = [
-        {"tokenizer": {"pretrained_model_name_or_path": "/unused"}, "transform_cls": {
-            "name": "AudioTextConversationTransform", "prompt_formatter": formatter,
-        }} for formatter in ("asr", "audio-response", "audio-continuation", "ast-cot")
+        {
+            "use_storage_api": False,
+            "tokenizer": {"pretrained_model_name_or_path": "/unused"},
+            "transform_cls": {
+                "name": "AudioTextConversationTransform",
+                "prompt_formatter": formatter,
+            },
+        }
+        for formatter in ("asr", "audio-response", "audio-continuation", "ast-cot")
     ]
     path = tmp_path / "data.yaml"
     OmegaConf.save({"dataset": entries, "dataset_collator": {"knowledge_distillation": kd_enabled}}, path)
+    original_config = path.read_bytes()
     seen = []
 
     def build(dataset_entries, **kwargs):
@@ -212,10 +263,16 @@ def test_streaming_provider_forwards_kd_to_transform(monkeypatch, tmp_path, kd_e
     monkeypatch.setattr(streaming, "build_speech_chunk_dataset", build)
     monkeypatch.setattr(streaming, "build_speech_chunk_collator", lambda *args: lambda records: records[0])
     monkeypatch.setattr(AutoTokenizer, "from_pretrained", lambda *args, **kwargs: CharacterTokenizer())
-    monkeypatch.setattr(SpeechChunkStreamingDatasetProvider, "_data_parallel_rank_and_size", staticmethod(lambda _: (0, 1)))
-    provider = SpeechChunkStreamingDatasetProvider(seq_length=8192, speech_config_yaml=str(path), num_workers=0)
-    train, _, _ = provider.build_datasets(SimpleNamespace())
+    monkeypatch.setattr(
+        SpeechChunkStreamingDatasetProvider, "_data_parallel_rank_and_size", staticmethod(lambda _: (0, 1))
+    )
+    provider = SpeechChunkStreamingDatasetProvider(
+        seq_length=8192, speech_config_yaml=str(path), num_workers=0, use_storage_api=storage_override
+    )
+    train, _, _ = provider.build_datasets(SimpleNamespace(pg_collection=None))
     assert next(train) == {"sentinel": True}
+    assert all(entry["use_storage_api"] is (storage_override is True) for entry in seen)
+    assert path.read_bytes() == original_config
     assert len(seen) == 4
     for entry in seen:
         assert entry["transform_cls"].get("knowledge_distillation", False) == kd_enabled
@@ -226,8 +283,10 @@ def test_streaming_provider_forwards_kd_to_transform(monkeypatch, tmp_path, kd_e
 def test_raw_annotation_to_teacher_batch(formatter):
     dataset = object.__new__(BlobChunkALMDataset)
     dataset.transforms = AudioTextConversationTransform(
-        {"pad_to_context_length": False}, conv_template="qwen3_audio_instruct",
-        prompt_formatter=formatter, knowledge_distillation=True,
+        {"pad_to_context_length": False},
+        conv_template="qwen3_audio_instruct",
+        prompt_formatter=formatter,
+        knowledge_distillation=True,
     )
     dataset.tokenize = CharacterTokenizer()
     dataset._sample_processor = processor()

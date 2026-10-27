@@ -82,6 +82,8 @@ def test_s2_kd_recipe_builds_config_and_sets_freeze_and_kd_keys(monkeypatch):
 
     # KD hyperparameters set explicitly (not left to step.py getattr defaults).
     assert model.knowledge_distillation is True
+    assert model.moe_router_load_balancing_type == "none"
+    assert model.moe_aux_loss_coeff == 0.0
     assert model.distillation_weight == 0.75
     assert model.distillation_temperature == 2.0
     assert model.distillation_kl_chunk_size == 128

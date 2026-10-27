@@ -1,0 +1,303 @@
+[
+  {
+    "source": "phyagi/eval/tasks/audio/hf_dataset.py",
+    "source_sha256": "f7526dbc047deab34255c4be94a6844f10ce3e1674b5e33d5396a72a96fd3842",
+    "destination": "hf_dataset.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/aa_dataset.py",
+    "source_sha256": "185c48d97dbb8c9da764435b165d31f20c089a16eeb127a989752054423b98b2",
+    "destination": "aa_dataset.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/jsonl_dataset.py",
+    "source_sha256": "387d16ae51882415836fe64eeabf40456f54b77af1257c35ed47a00018287caa",
+    "destination": "jsonl_dataset.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/ltu_dataset.py",
+    "source_sha256": "9bfb066876df927960ba73e9554288e4573a66c462b5623b2bb248bf162237f8",
+    "destination": "ltu_dataset.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/utils.py",
+    "source_sha256": "6b7f7aee03c3adbf9a7e34b2d0ccced2f898dec0623d7b1940a87f7c4f609c5e",
+    "destination": "audio_utils.py"
+  },
+  {
+    "source": "phyagi/eval/utils/dataset_utils.py",
+    "source_sha256": "0d75c892b9751941f0d9efe85278b77a1d16ee2fccca904feb07c9fabea3ec53",
+    "destination": "dataset_utils.py"
+  },
+  {
+    "source": "phyagi/eval/utils/pipeline_utils.py",
+    "source_sha256": "0e7b4b5070eccc5188dcd921bd69d0f2f5244bf33eaadc8074e11d63f6e4903a",
+    "destination": "pipeline_utils.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/chunk/chunker.py",
+    "source_sha256": "ee5b2fef04b852c2391b1a5dce5178f457e98f9d770f40d042a4873efb354d4c",
+    "destination": "chunk/chunker.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/chunk/svad.py",
+    "source_sha256": "a9eebe9e7d6f278bb7b2b9d4ce525b273c2f9ba788fedd47ca4a9836c9d8e882",
+    "destination": "chunk/svad.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/chunk/featurizer.py",
+    "source_sha256": "61d2bb4b8c6006e241b5fe1a1170146d7265d0899df338e5e3376b9da8685163",
+    "destination": "chunk/featurizer.py"
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/chunk/webrtc_vad.py",
+    "source_sha256": "cadc180baa631550ef8578a4e562cb59722fec362f445d3bf7126ebae859b39e",
+    "destination": "chunk/webrtc_vad.py"
+  },
+  {
+    "source": "projects/inference_vllm/runtime/checkpoint.py",
+    "source_sha256": "5c638cf5001759a643212cd1257003cdd4da9bd8c93e5b47025fa69f2aab4ad5",
+    "destination": "runtime/checkpoint.py"
+  },
+  {
+    "source": "projects/inference_vllm/runtime/launcher.py",
+    "source_sha256": "4f66e331f79ba1f680adbd3aaa4a520d981321ef3c7e79ed9d2bb5091c0ebfbd",
+    "destination": "runtime/launcher.py"
+  },
+  {
+    "source": "projects/inference_vllm/runtime/source_overlay.py",
+    "source_sha256": "42205828c7149dfb185fd8e60d2bfa10a7334a25eda1960c969eae15be3c2c42",
+    "destination": "runtime/source_overlay.py"
+  },
+  {
+    "source": "projects/inference_vllm/runtime/overlay/sitecustomize.py",
+    "source_sha256": "12f13cd92bf8cb8dbd4640209faa2e01c488395e5e1b2f442202b9a042d098b2",
+    "destination": "runtime/overlay/sitecustomize.py"
+  },
+  {
+    "source": "projects/inference_vllm/mtp4/mtp_model.py",
+    "source_sha256": "2484579766715bfe4b6233f4a98edc4cf8d9b53cdf771b7adae49b94fb4be052",
+    "destination": "mtp4/mtp_model.py"
+  },
+  {
+    "source": "projects/inference_vllm/mtp4/proposer.py",
+    "source_sha256": "b0b5976c39ffbd67cb125339c371c4e2fc8fd8c4a743a5ef263b9aa57fa6f969",
+    "destination": "mtp4/proposer.py"
+  },
+  {
+    "source": "docker/qwen35_speech_vllm/qwen3_5_audio.py",
+    "source_sha256": "d5886bcbf04e05c66cc5904a680bebc71570dcb77fb0276e871d947baf450a39",
+    "destination": "runtime/qwen3_5_audio.py"
+  },
+  {
+    "source": "docker/qwen35_speech_vllm/qwen3_5_audio_chat_template.jinja",
+    "source_sha256": "521de9c80fc9d968553eb67cdad43a094196136f29c514032c4e29a6ecdcfa62",
+    "destination": "runtime/audio_chat_template.jinja"
+  },
+  {
+    "source": "scripts/audio_eval/run_opensr_eval.sh",
+    "source_sha256": "762816d2bf4ea01f1497c3d247662c7d9b273c0902b939df3d4e8203bd324a26",
+    "destination": "scripts/audio_eval/run_opensr_eval.sh"
+  },
+  {
+    "source": "scripts/audio_eval/run_s2t_eval.sh",
+    "source_sha256": "096548107331362c8e95481b1f9c94d1908267efb0a436734124c53f41989f30",
+    "destination": "scripts/audio_eval/run_s2t_eval.sh"
+  },
+  {
+    "source": "scripts/audio_eval/run_st_eval.sh",
+    "source_sha256": "67c8f2c8ec2b84509e0f00c0fa78e2f252e8c89bc451fd6f826d483b6db2bbc1",
+    "destination": "scripts/audio_eval/run_st_eval.sh"
+  },
+  {
+    "source": "scripts/audio_eval/run_bfcl_v3.sh",
+    "source_sha256": "3f51afe5eb4bd88bb2324b59305ce443bfdf873921f616ced2e13e35fa58be69",
+    "destination": "scripts/audio_eval/run_bfcl_v3.sh"
+  },
+  {
+    "source": "scripts/audio_eval/eval_bfcl.py",
+    "source_sha256": "8af1e9c65e2988751294b7b78b864957302bff2e2bfebe5b86c8fc58b7a4f423",
+    "destination": "scripts/audio_eval/bfcl_runtime.py",
+    "omitted_symbols": [
+      "LFG3Runtime",
+      "Qwen35AudioRuntime",
+      "Qwen35TextRuntime"
+    ]
+  },
+  {
+    "source": "scripts/audio_eval/prepare_bfcl_speech.py",
+    "source_sha256": "4ecd8f4dc0ef5472e0481d821c06805cc4134e8f9a86e44e421b04d95f1f5d55",
+    "destination": "scripts/audio_eval/prepare_bfcl_speech.py"
+  },
+  {
+    "source": "scripts/audio_eval/report_bfcl.py",
+    "source_sha256": "c0f934a423c98aaf2db34c29ae06be45fb447e2ddaa069da13f0b01023802df6",
+    "destination": "scripts/audio_eval/report_bfcl.py"
+  },
+  {
+    "source": "scripts/audio_eval/cascade_transcripts.py",
+    "source_sha256": "8580548040d2be119c66a69a51350034564fd572693aeed7c0387be6f7bc5077",
+    "destination": "scripts/audio_eval/cascade_transcripts.py"
+  },
+  {
+    "source": "scripts/audio_eval/format_bigbench_audio_judge_input.py",
+    "source_sha256": "daa178cc054d265008e51d84b8e0dfd30708f200a4980d664ab6af0a96e49c7a",
+    "destination": "scripts/audio_eval/format_bigbench_audio_judge_input.py"
+  },
+  {
+    "source": "scripts/audio_eval/evaluate_voicebench_s2t.py",
+    "source_sha256": "fc17924926a1cafd9aac5bd177e5d87570865c32bcbf36b0528764e812f8a856",
+    "destination": "scripts/audio_eval/evaluate_voicebench_s2t.py"
+  },
+  {
+    "source": "scripts/audio_eval/speech_out/convert_voice_bench.py",
+    "source_sha256": "ed904f2fc6f4769ca62fda00e9df4dcb5991d17ade734bc32428e3c917e827a6",
+    "destination": "scripts/audio_eval/speech_out/convert_voice_bench.py"
+  },
+  {
+    "source": "phyagi/eval/utils/normalizer/data_utils.py",
+    "source_sha256": "02400851f7403101bd5dbe51bde5314ddc64158315406e0cbe19a75d0ee9da51",
+    "destination": "normalizer.py",
+    "symbols": [
+      "MultilingualNormalizer",
+      "is_target_text_in_range",
+      "ml_normalizer",
+      "normalize_compound_pairs",
+      "normalizer"
+    ]
+  },
+  {
+    "source": "phyagi/eval/utils/score_utils.py",
+    "source_sha256": "3083a174bc7cacbbdf7f28aa9891e435b0af4f1ccd52aa0bb25af048810486c0",
+    "destination": "score_utils.py",
+    "symbols": [
+      "BaseScorer",
+      "HFWerScorer",
+      "SacrebleuScorer"
+    ]
+  },
+  {
+    "source": "phyagi/eval/tasks/audio/speech_task.py",
+    "source_sha256": "738becfa4d8abaccf9e0f252c19217fec63a7a9896f296629ec002123475e44a",
+    "destination": "prompts.py",
+    "symbols": [
+      "_move_audio_after_instruction",
+      "apply_instruction_first_to_source",
+      "asr_prompt_map",
+      "clean_asr_mode_tags"
+    ]
+  },
+  {
+    "source": "scripts/audio_eval/eval.py",
+    "source_sha256": "2ed1d7f3a26dcb62016bba1cd13f816809f9a88311a90fe7a948e8ef85e4a25d",
+    "destination": "cli.py",
+    "symbols": [
+      "parse_args"
+    ]
+  },
+  {
+    "source": "scripts/audio_eval/bfcl/bfcl_utils.py",
+    "source_sha256": "179698e648c4a88f09d84ec8d764b4c4b684b1196fed46043e2521118ecae37a",
+    "destination": "scripts/audio_eval/bfcl/bfcl_utils.py"
+  },
+  {
+    "source": "scripts/audio_eval/bfcl/constant.py",
+    "source_sha256": "4316f15c0889fe584d5799d1bef8a03d1907b32dae8613d7dfc641086ef63ea0",
+    "destination": "scripts/audio_eval/bfcl/constant.py"
+  },
+  {
+    "source": "scripts/audio_eval/bfcl/ast_eval/ast_checker.py",
+    "source_sha256": "db693366c964b4c4cf1cddfbbfc29012e80f3d50783153e8992c95f97150242c",
+    "destination": "scripts/audio_eval/bfcl/ast_eval/ast_checker.py"
+  },
+  {
+    "source": "scripts/audio_eval/bfcl/ast_eval/type_convertor/java_type_converter.py",
+    "source_sha256": "0bdec9c6521459fefab121859d4ba4a2a7c9c68fe7d469efe4e623a4efaa701d",
+    "destination": "scripts/audio_eval/bfcl/ast_eval/type_convertor/java_type_converter.py"
+  },
+  {
+    "source": "scripts/audio_eval/bfcl/ast_eval/type_convertor/js_type_converter.py",
+    "source_sha256": "03dba5c970586584bd6aa758f910c6f5c13446b867f9b1b2c7769274bb93a14a",
+    "destination": "scripts/audio_eval/bfcl/ast_eval/type_convertor/js_type_converter.py"
+  },
+  {
+    "source": "scripts/audio_eval/utils.py",
+    "source_sha256": "b125c5896e0c6e0ad5e6ee65394677eb2af205a6d519f76828f732345d3c3186",
+    "destination": "scripts/audio_eval/report_utils.py",
+    "symbols": [
+      "save_task_gen_result"
+    ]
+  },
+  {
+    "source": "VoiceBench/src/evaluator/__init__.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "cd903317ed2a33594e8212a054e8350775cdad2e0b5d554c66ffeb238a7e8c82",
+    "destination": "voicebench/__init__.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/base.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "82e69f081bd3c5c41514d4156ff86bcdad80806e8a4582f51f6be0b3d78c52dc",
+    "destination": "voicebench/base.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/bbh.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "b2b5b7960c47af7c941956fed65fd2d1ef346d4cf0b6800bbbe22903edd4b5c2",
+    "destination": "voicebench/bbh.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/harm.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "0a70a527f60c3e5e3ead517a348a46ed46104c4bcb5c42febc68e056c8398031",
+    "destination": "voicebench/harm.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/ifeval.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "d43f8c7e3273523c2a88de542179c5b137d08fb8c2b0b4085b32c48a51c70924",
+    "destination": "voicebench/ifeval.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/instruction_following_eval/__init__.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "destination": "voicebench/instruction_following_eval/__init__.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/instruction_following_eval/instructions.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "ac8af03812e0b2e19431c0664812cdf27d37a702e84feda71273b5d4d99c7be0",
+    "destination": "voicebench/instruction_following_eval/instructions.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/instruction_following_eval/instructions_registry.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "8c8a9810e53b0755c405d0ec76f2f2bbcc965e42c41765772c070d04dc45176d",
+    "destination": "voicebench/instruction_following_eval/instructions_registry.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/instruction_following_eval/instructions_util.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "c15ce8f341cec041a687271885b223b49999b2e839962b8ee9ac2a898b87ba94",
+    "destination": "voicebench/instruction_following_eval/instructions_util.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/mcq.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "10b1d0287222f7a48a8277feb6d5ed643fbe7c9c8946e7d2fdc3e4c299b73559",
+    "destination": "voicebench/mcq.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/open.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "17ec77402aeae67e25946151daf34a18e94c58247e095522f64715027775f552",
+    "destination": "voicebench/open.py"
+  },
+  {
+    "source": "VoiceBench/src/evaluator/qa.py",
+    "revision": "3c3b0d3a7a956f745305eb348f5e03ce7ec73dad",
+    "source_sha256": "53c2658536e9c8e63c69ca05281a909d3d0c33cc9c3624b2fc867cbaa9c86a1e",
+    "destination": "voicebench/qa.py"
+  }
+]

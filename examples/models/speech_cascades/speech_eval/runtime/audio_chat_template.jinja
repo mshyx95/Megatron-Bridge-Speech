@@ -1,0 +1,79 @@
+{%- macro render_content(content) %}
+    {%- if content is string %}
+        {{- content }}
+    {%- elif content is iterable and content is not mapping %}
+        {%- for item in content %}
+            {%- if item.type in ['audio', 'audio_url', 'input_audio'] or 'audio' in item or 'audio_url' in item or 'input_audio' in item %}
+                {{- '<audio>' }}
+            {%- elif 'text' in item %}
+                {{- item.text }}
+            {%- else %}
+                {{- raise_exception('Unexpected item type in content.') }}
+            {%- endif %}
+        {%- endfor %}
+    {%- elif content is none or content is undefined %}
+        {{- '' }}
+    {%- else %}
+        {{- raise_exception('Unexpected content type.') }}
+    {%- endif %}
+{%- endmacro %}
+{%- if not messages %}
+    {{- raise_exception('No messages provided.') }}
+{%- endif %}
+{%- if tools and tools is iterable and tools is not mapping %}
+    {{- '<|im_start|>system\n' }}
+    {{- '# Tools\n\nYou have access to the following functions:\n\n<tools>' }}
+    {%- for tool in tools %}
+        {{- '\n' + (tool | tojson) }}
+    {%- endfor %}
+    {{- '\n</tools>' }}
+    {{- '\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>' }}
+    {%- if messages[0].role == 'system' %}
+        {%- set system_content = render_content(messages[0].content) | trim %}
+        {%- if system_content %}
+            {{- '\n\n' + system_content }}
+        {%- endif %}
+    {%- endif %}
+    {{- '<|im_end|>\n' }}
+{%- elif messages[0].role == 'system' %}
+    {{- '<|im_start|>system\n' + (render_content(messages[0].content) | trim) + '<|im_end|>\n' }}
+{%- endif %}
+{%- for message in messages %}
+    {%- set content = render_content(message.content) | trim %}
+    {%- if message.role == 'system' %}
+        {%- if not loop.first %}
+            {{- raise_exception('System message must be at the beginning.') }}
+        {%- endif %}
+    {%- elif message.role == 'user' %}
+        {{- '<|im_start|>user\n' + content + '<|im_end|>\n' }}
+    {%- elif message.role == 'assistant' %}
+        {{- '<|im_start|>assistant\n' + content }}
+        {%- if message.tool_calls and message.tool_calls is iterable and message.tool_calls is not mapping %}
+            {%- for tool_call in message.tool_calls %}
+                {%- if tool_call.function is defined %}
+                    {%- set tool_call = tool_call.function %}
+                {%- endif %}
+                {{- '\n<tool_call>\n<function=' + tool_call.name + '>\n' }}
+                {%- for args_name, args_value in tool_call.arguments | items %}
+                    {{- '<parameter=' + args_name + '>\n' }}
+                    {{- (args_value | tojson | safe) if args_value is mapping or (args_value is sequence and args_value is not string) else (args_value | string) }}
+                    {{- '\n</parameter>\n' }}
+                {%- endfor %}
+                {{- '</function>\n</tool_call>' }}
+            {%- endfor %}
+        {%- endif %}
+        {{- '<|im_end|>\n' }}
+    {%- elif message.role == 'tool' %}
+        {{- '<|im_start|>user\n<tool_response>\n' + content + '\n</tool_response>\n<|im_end|>\n' }}
+    {%- else %}
+        {{- raise_exception('Unexpected message role.') }}
+    {%- endif %}
+{%- endfor %}
+{%- if add_generation_prompt %}
+    {{- '<|im_start|>assistant\n' }}
+    {%- if enable_thinking is defined and enable_thinking is false %}
+        {{- '<think>\n\n</think>\n\n' }}
+    {%- else %}
+        {{- '<think>\n' }}
+    {%- endif %}
+{%- endif %}

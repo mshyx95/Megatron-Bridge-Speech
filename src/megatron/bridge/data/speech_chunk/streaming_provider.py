@@ -18,13 +18,18 @@ Mirrors the baseline ``pretrain_speech.py`` integration: it loads the OmegaConf 
 builds the weighted streaming ``blob_chunk_alm`` dataset and its dynamic ALM collator, and returns a
 ready ``DataLoader`` iterator through the ``external`` dataloader path. The collator does dynamic
 (frame-budget) batching, so the loader uses ``batch_size=1`` and each ``next`` yields one packed
-micro-batch with the schema the speech-cascades forward step consumes.
+micro-batch with the schema the speech-cascades forward step consumes. With TP enabled, only the
+TP source rank opens the streaming data; the forward step broadcasts its dynamic batch to peers.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from megatron.bridge.training.config import DatasetBuildContext, DatasetProvider
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -35,23 +40,43 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
         seq_length: Sequence length; must match ``model.seq_length``.
         speech_config_yaml: OmegaConf data config with ``dataset`` entries and ``dataset_collator``.
         force_local: Read from mounted paths instead of the Azure storage-API stream.
+        use_storage_api: Optional transport-only override for every dataset entry. ``None``
+            preserves the source config; ``True`` requires ``force_local=False``.
         data_spec_override: Optional list of ``dataset_spec`` JSON paths restricting the first entry.
         token_budget_override: Optional value for each entry's ``seq_len`` / ``batcher_batch_size``
             (shrinks utterances per packed batch for memory-limited runs).
+        timeout: Maximum seconds to wait for a worker batch; zero preserves unbounded waiting.
+            A positive timeout requires ``num_workers > 0``.
     """
 
     seq_length: int
     speech_config_yaml: str
     force_local: bool = False
+    use_storage_api: bool | None = None
     data_spec_override: list[str] | None = None
     token_budget_override: int | None = None
     dataloader_type: str = "external"
     num_workers: int = 1
     prefetch_factor: int = 8
+    timeout: int = 0
     skip_getting_attention_mask_from_dataset: bool = True
     _extra: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def build_datasets(self, context: DatasetBuildContext) -> tuple[Any, None, None]:
+        if self.timeout < 0 or (self.num_workers == 0 and self.timeout != 0):
+            raise ValueError("Dataloader timeout must be nonnegative and requires worker processes")
+        if self.use_storage_api is not None and not isinstance(self.use_storage_api, bool):
+            raise TypeError("use_storage_api must be a bool or None")
+        if self.force_local and self.use_storage_api is True:
+            raise ValueError("use_storage_api=True requires force_local=False")
+        pg = context.pg_collection
+        if pg is not None and pg.tp is not None:
+            import torch.distributed as dist
+
+            if dist.get_world_size(group=pg.tp) > 1 and dist.get_rank(group=pg.tp) != 0:
+                # The speech forward step receives the source rank's dynamic batch by TP broadcast.
+                return iter(()), None, None
+
         from omegaconf import OmegaConf
         from torch.utils.data import DataLoader
         from transformers import AutoTokenizer
@@ -81,12 +106,22 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
                 {**dict(e), "seq_len": self.token_budget_override, "batcher_batch_size": self.token_budget_override}
                 for e in entries
             ]
+        if self.use_storage_api is not None:
+            entries = [{**dict(entry), "use_storage_api": self.use_storage_api} for entry in entries]
+        LOGGER.info(
+            "Streaming transport force_local=%s use_storage_api_override=%s enabled_entries=%d/%d",
+            self.force_local,
+            self.use_storage_api,
+            sum(not self.force_local and entry.get("use_storage_api") is True for entry in entries),
+            len(entries),
+        )
 
         tokenizer = AutoTokenizer.from_pretrained(
             entries[0]["tokenizer"]["pretrained_model_name_or_path"], trust_remote_code=True
         )
         dp_rank, dp_world = self._data_parallel_rank_and_size(context)
         dataset = build_speech_chunk_dataset(entries, rank=dp_rank, world_size=dp_world, force_local=self.force_local)
+        dataset = self._prepare_dataset(dataset)
         collator = build_speech_chunk_collator(cfg["dataset_collator"], tokenizer)
         # Deep prefetch hides the Azure-download / shuffle-buffer warmup that otherwise shows as
         # intermittent GPU-idle stalls tapering over the first ~1-2k steps.
@@ -95,12 +130,17 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
             "collate_fn": collator,
             "num_workers": self.num_workers,
             "pin_memory": getattr(self, "pin_memory", False),
+            "timeout": self.timeout,
         }
         if self.num_workers > 0:
             loader_kwargs["prefetch_factor"] = self.prefetch_factor
             loader_kwargs["persistent_workers"] = getattr(self, "persistent_workers", False)
         loader = DataLoader(dataset, **loader_kwargs)
         return iter(loader), None, None
+
+    def _prepare_dataset(self, dataset: Any) -> Any:
+        """Allow startup adapters to wrap the native stream before workers are started."""
+        return dataset
 
     @staticmethod
     def _data_parallel_rank_and_size(context: DatasetBuildContext) -> tuple[int, int]:
