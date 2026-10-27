@@ -40,7 +40,7 @@ uv run python examples/conversion/hf_to_megatron_generate_text.py \
 
 ## Recipes
 
-- Llama 2 recipe: [`src/megatron/bridge/recipes/llama/llama2.py`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/blob/main/src/megatron/bridge/recipes/llama/llama2.py)
+- Llama 2 recipe (v0.4.2): [`src/megatron/bridge/recipes/llama/llama2.py`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/blob/v0.4.2/src/megatron/bridge/recipes/llama/llama2.py)
 
 ## Related Implementation
 
