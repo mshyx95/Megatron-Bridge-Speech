@@ -732,6 +732,16 @@ def get_effective_lora_dim(module: nn.Module, *, dim: int, normalize_moe_lora: b
     return dim // topk
 
 
+def get_effective_lora_alpha(
+    *, alpha: float, dim: int, effective_dim: int, normalize_moe_lora: bool, is_expert: bool
+) -> float:
+    """Return alpha adjusted to preserve the configured LoRA scaling after expert-rank normalization."""
+
+    if not normalize_moe_lora or not is_expert:
+        return alpha
+    return alpha * effective_dim / dim
+
+
 def align_expert_dim_for_tp(
     module: nn.Module,
     dim: int,

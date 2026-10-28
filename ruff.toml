@@ -28,6 +28,13 @@ exclude = [
     "docs/source/conf.py",
     "setup.py",
     "3rdparty/**",
+    # Vendored third-party Cascades encoder; kept byte-identical to the baseline for parity.
+    "src/megatron/bridge/models/speech_cascades/encoder/audio_blocks/**",
+    # Vendored streaming speech-chunk data pipeline (MIT); kept verbatim from the baseline.
+    "src/megatron/bridge/data/speech_chunk_streaming/**",
+    # Vendored ASR eval text normalizer (Whisper/OpenAI + baseline extensions); kept verbatim for WER parity.
+    "src/megatron/bridge/models/speech_cascades/eval_metrics/normalizer.py",
+    "src/megatron/bridge/models/speech_cascades/eval_metrics/english_abbreviations.py",
 ]
 
 # Files to completely ignore
@@ -82,6 +89,8 @@ lines-after-imports = 2
 force-single-line = false
 
 [lint.per-file-ignores]
+# Migrated reference evaluation code retains its upstream documentation conventions.
+"examples/models/speech_cascades/speech_eval/**" = ["D101", "D103"]
 # Ignore import violations in __init__ files
 "__init__.py" = ["F401", "F403"]
 # Ignore docstring requirements in test files

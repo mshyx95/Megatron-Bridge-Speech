@@ -1,0 +1,37 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stage-2 speech->text KD + MTP *training* config (model/recipe hyperparameters only), consumed by
+# examples/models/speech_cascades/finetune.py --train-config-yaml. Keys map 1:1 to finetune.py CLI
+# flags (dashes -> underscores); any CLI flag passed explicitly overrides the value here. This file is
+# reusable across data mixtures: pick the data with --streaming-config-yaml (e.g. data_en_s2_kd.yaml)
+# and the run-specific paths (hf/checkpoint/output/phase) via the launcher. Mirrors the reference
+# qwen3-5-4b-s2-proj20m-p1-mtp4-kd-{warm500,full4000}.
+
+s2_kd: true
+activation_recompute: true
+
+tensor_model_parallel_size: 1
+pipeline_model_parallel_size: 1
+global_batch_size: 64
+micro_batch_size: 1
+seq_length: 8192
+
+# Two-phase schedule: warm (projector + MTP warmup) then full (initialized from the warm checkpoint).
+warm_iters: 500
+full_iters: 4000
+save_interval: 500
+lr: 4.0e-5
+lr_warmup_iters: 100
+log_interval: 10
+
+# Main-path knowledge distillation (KL + CE mix).
+distillation_weight: 0.75
+distillation_temperature: 2.0
+distillation_kl_chunk_size: 128
+
+# Multi-token prediction depth heads + per-depth self-distillation.
+mtp_num_hidden_layers: 4
+mtp_loss_weight: 1.0
+mtp_loss_depth_weights: [0.50, 0.25, 0.15, 0.10]
+mtp_distillation_weight: 0.75
