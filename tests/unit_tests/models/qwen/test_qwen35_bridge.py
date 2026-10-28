@@ -909,6 +909,19 @@ _PARITY_IDS = [*(f"dense-{name}" for name in _DENSE_CONFIGS), *(f"moe-{name}" fo
 class TestQwen35BuilderConfig:
     """Builder-backed ModelConfig path for the Qwen3.5 text bridges."""
 
+    @pytest.mark.parametrize("aux_loss_coeff", [0.0, 0.017])
+    def test_moe_aux_loss_coeff_preserved_in_builder_and_provider(self, aux_loss_coeff: float) -> None:
+        config = _qwen35_moe_text_config(router_aux_loss_coef=aux_loss_coeff)
+        bridge = Qwen35MoEBridge()
+        model_config = bridge.hf_config_to_model_config(config)
+        pretrained = Mock(spec=PreTrainedCausalLM)
+        pretrained.config = config
+        with pytest.warns(FutureWarning, match=r"deprecated.*get_model_config.*get_model"):
+            provider = bridge.provider_bridge(pretrained)
+
+        assert model_config.moe_aux_loss_coeff == aux_loss_coeff
+        assert provider.moe_aux_loss_coeff == aux_loss_coeff
+
     @pytest.mark.parametrize("bridge_class", [Qwen35Bridge, Qwen35MoEBridge])
     def test_provider_bridge_is_inherited_compatibility_only(self, bridge_class):
         assert "provider_bridge" not in bridge_class.__dict__

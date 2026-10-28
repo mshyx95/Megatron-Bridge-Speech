@@ -72,6 +72,7 @@ def test_native_two_stage_checkpoint_roundtrip_on_cpu(tmp_path):
     import torch.distributed as dist
     from megatron.core import dist_checkpointing
     from megatron.core.dist_checkpointing.mapping import ShardedTensor
+    from megatron.core.transformer.transformer_config import TransformerConfig
 
     from megatron.bridge.models.speech_cascades.peft import SpeechCascadesLoRA
     from megatron.bridge.peft.adapter_wrapper import AdapterWrapper
@@ -84,6 +85,7 @@ def test_native_two_stage_checkpoint_roundtrip_on_cpu(tmp_path):
     class TinyModel(nn.Module):
         def __init__(self):
             super().__init__()
+            self.config = TransformerConfig(num_layers=1, hidden_size=4, num_attention_heads=1)
             self.projection = nn.Linear(4, 8)
             self.audio_model = nn.Linear(8, 8)
             self.register_buffer("normalization", torch.randn(4))
@@ -170,7 +172,11 @@ def test_native_router_counters_are_not_checkpoint_state(tmp_path):
             moe_router_fusion=False,
         )
         groups = SimpleNamespace(
-            tp=dist.group.WORLD, cp=dist.group.WORLD, tp_cp=dist.group.WORLD, tp_dp_cp=dist.group.WORLD
+            tp=dist.group.WORLD,
+            expt_tp=dist.group.WORLD,
+            cp=dist.group.WORLD,
+            tp_cp=dist.group.WORLD,
+            tp_dp_cp=dist.group.WORLD,
         )
         with patch("torch.cuda.current_device", return_value=torch.device("cpu")):
             router = TopKRouter(config, pg_collection=groups)
