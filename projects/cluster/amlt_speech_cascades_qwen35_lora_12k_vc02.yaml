@@ -1,0 +1,28 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Qwen3.5-9B Speech Cascades 12K-step GBS64 rank-320 LoRA on EN-ASR data (16 H100)
+
+<<: !include .speech-vc02.local.yaml
+
+env_defaults:
+  <<: *speech_vc02_env
+  JOB_NAME: qwen35-9b-speech-lora-r320-en-asr-12k-gbs64-16gpu
+  TRAIN_CONFIG: projects/cluster/train_qwen35_9b_speech_lora_12k.yaml
+  DATA_CONFIG: projects/cluster/data_en_asr_s1.yaml
+
+jobs:
+  - <<: *speech_vc02_job
+    name: ${JOB_NAME}
+    sku: ${NODES}x${SKU}
+    sla_tier: ${sla_tier}
+    priority: low
+    command:
+      - nvidia-smi
+      - export BASE_HF=${BASE_HF}
+      - export ENC_CKPT=${ENC_CKPT}
+      - export OUTPUT=${OUTPUT}
+      - export TRAIN_CONFIG=${TRAIN_CONFIG}
+      - export DATA_CONFIG=${DATA_CONFIG}
+      - export USE_PEFT=1
+      - bash projects/cluster/run_speech_cascades_stage1.sh

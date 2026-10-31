@@ -89,7 +89,7 @@ def _qwen35_moe_config_kwargs(text_config) -> dict[str, Any]:
     Returns:
         Megatron config fields keyed by name.
     """
-    return dict(
+    kwargs = dict(
         moe_ffn_hidden_size=getattr(text_config, "moe_intermediate_size", 1024),
         num_moe_experts=getattr(text_config, "num_experts", 512),
         moe_router_topk=getattr(text_config, "num_experts_per_tok", 10),
@@ -102,6 +102,9 @@ def _qwen35_moe_config_kwargs(text_config) -> dict[str, Any]:
         moe_permute_fusion=True,
         moe_router_dtype="fp32",
     )
+    if hasattr(text_config, "router_aux_loss_coef"):
+        kwargs["moe_aux_loss_coeff"] = text_config.router_aux_loss_coef
+    return kwargs
 
 
 def _moe_routed_expert_mappings(hf_prefix, megatron_prefix, experts_packed, transpose_on_export=False):

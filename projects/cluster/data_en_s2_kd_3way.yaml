@@ -1,0 +1,686 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Legacy ASR-sourced mixture: rewrite KD requires explicit source transcripts.
+# The current streaming path rejects missing rewrite transcripts rather than deriving
+# them from answer labels. Use data_s2tt_b1.yaml for the B1 reference mixture.
+#
+# Stage-2 speech->text knowledge-distillation (KD) streaming data config, consumed by
+# SpeechChunkStreamingDatasetProvider / build_speech_chunk_dataset. Mirrors the reference phyagi S2
+# mixture that the MTP4-KD run trains on
+# (cascade_encoder_stage2/qwen3-5-4b-s2-projonly-lfg3-p1-mtp4-4k.yaml -> the base config the
+# `-proj20m-p1-mtp4-kd-{warm500,full4000}` overrides inherit from). Three matched (1:1:1) categories,
+# all built from the SAME five ASR spec-groups (in-house + earnings, multilingual in-house,
+# MLS/GigaSpeech, CommonVoice/VoxPopuli/FLEURS, OpenASR AMI/earnings), differing only by prompt
+# formatter:
+#   - ASR            (prompt_formatter asr / asr-lexical): user asks to transcribe, response = transcript.
+#   - nothink        (prompt_formatter audio-response):    user turn is bare `<audio>`, response = transcript.
+#   - continuation   (prompt_formatter audio-continuation): user turn is `{prompt}\n\n<audio>`, response = transcript.
+# The reference base additionally carries speech-translation (ast-cot, 2 groups); those are omitted
+# here (the user requested the ASR / nothink / continuation three categories).
+#
+# KD teacher alignment: for ALL three categories the supervised assistant response IS the reference
+# transcript (these are ASR-sourced specs; the plain audio-response / audio-continuation formatters do
+# not carry a separate answer), so the response label tokens are exactly the transcript tokens the
+# teacher path needs to replace each audio placeholder span. The teacher build reads a per-example
+# `transcript_ids` field (Sequence[torch.Tensor], one 1D long tensor per audio segment k, ordered to
+# match the `-(k+1)` placeholder runs in `input_ids`); when it is absent the dynamic collator derives
+# it from the response labels (`derive_transcript_ids`). The collator emits `teacher_input_ids` /
+# `teacher_labels` / `teacher_attention_mask` when `knowledge_distillation` is set below.
+#
+# Reads the mounted /datablob1 (use_storage_api: False; pass --streaming-force-local for local runs).
+
+data_audio_processor:
+  name: "cascades"
+
+seq_len: 8192
+compression_rate: 8
+downsample_rate: 1
+batcher_batch_size: ${seq_len}
+
+use_storage_api: False
+multi_threaded_download: True
+prefetch_queue_size: 48
+conv_template: qwen3_audio_instruct
+padding_mask: True
+streaming_compression: True
+
+tokenizer:
+  pretrained_model_name_or_path: /datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B/
+
+pad_to_context_length: False
+
+dataset:
+  # Original ASR: in-house English and earnings.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 1
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR: multilingual in-house data (de/es/fr/it/ja/pt/zh).
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_ja_new.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_zh.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR (open source): MLS (en/de/es/fr/it/pt), Reazon (ja), WenetSpeech (zh), GigaSpeech.
+  # Intra-group duplicates up-weight the higher-resource languages, matching the reference exactly.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_de_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_es_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_fr_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_ja_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_zh_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 400
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr-lexical
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    text_normalization:
+      case_normalize: "lower"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR (open source): CommonVoice15, VoxPopuli, and FLEURS.
+  # Intra-group duplicates up-weight ja/pt/zh (CV15) and es/it (VoxPopuli), matching the reference.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 800
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR: OpenASR AMI and earnings (AMI duplicated to up-weight, matching the reference).
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 3
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # ===== nothink (audio-response): same ASR specs, question-style framing (fixed_prompt False) =====
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 1
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # nothink (audio-response): mirrors the ASR group above (same specs, teacher transcript == response).
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_ja_new.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_zh.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # nothink (audio-response): mirrors the ASR group above (same specs, teacher transcript == response).
+  # Intra-group duplicates up-weight the higher-resource languages, matching the reference exactly.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_de_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_es_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_fr_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_ja_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_zh_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 400
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+    text_normalization:
+      case_normalize: "lower"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # nothink (audio-response): mirrors the ASR group above (same specs, teacher transcript == response).
+  # Intra-group duplicates up-weight ja/pt/zh (CV15) and es/it (VoxPopuli), matching the reference.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 800
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # nothink (audio-response): mirrors the ASR group above (same specs, teacher transcript == response).
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 3
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # ===== continuation (audio-continuation): same ASR specs, continuation prompt (fixed_prompt True) =====
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 1
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # continuation (audio-continuation): mirrors the ASR group above (same specs, teacher transcript == response).
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_ja_new.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_zh.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # continuation (audio-continuation): mirrors the ASR group above (same specs, teacher transcript == response).
+  # Intra-group duplicates up-weight the higher-resource languages, matching the reference exactly.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_de_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_es_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_fr_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_ja_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_zh_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 400
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    text_normalization:
+      case_normalize: "lower"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # continuation (audio-continuation): mirrors the ASR group above (same specs, teacher transcript == response).
+  # Intra-group duplicates up-weight ja/pt/zh (CV15) and es/it (VoxPopuli), matching the reference.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 800
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # continuation (audio-continuation): mirrors the ASR group above (same specs, teacher transcript == response).
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 3
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+dataset_concat: random_iterable
+dataset_provider: blob_chunk_alm
+dataset_collator:
+  cls: blob_chunk_alm_dynamic
+  tokenizer: ${tokenizer}
+  audio_key: inputs_embeds
+  padding_mask: ${padding_mask}
+  # Emit teacher_input_ids / teacher_labels / teacher_attention_mask for KD when every example
+  # carries transcript_ids (the teacher text-forward path, WP-A1).
+  knowledge_distillation: True

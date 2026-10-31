@@ -1,0 +1,639 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Production multilingual stage-2 mixture migrated from qwen3-5-4b-s2-main-run-002.yaml.
+# Includes in-house and open-source ASR/ST, WavLLM, ENSQA, safety, and text SFT data.
+
+data_audio_processor:
+  name: "cascades"
+
+seq_len: 8192
+compression_rate: 8
+downsample_rate: 1
+batcher_batch_size: ${seq_len}  # "frame" criterion: token budget -> pack to fill seq_len (was 1 = 1 sample/seq, underfilled the GPU)
+sqa_en_weight: 2.83
+sqa_other_weight: 2.5
+
+use_storage_api: False
+multi_threaded_download: True
+prefetch_queue_size: 48
+conv_template: qwen3_audio_instruct
+padding_mask: True
+streaming_compression: True
+
+tokenizer:
+  pretrained_model_name_or_path: ${oc.env:SPEECH_TOKENIZER_PATH}
+
+pad_to_context_length: False
+
+dataset:
+  # ********** data details - asr **************
+  # 1. in-house (en5kh + de2kh + es2kh + fr2kh + it2kh + ja2kh + pt2kh + zh2kh + earning 500h) = 11M
+  # 2. Open-source ASR with old chunk format as in-house data:
+  #    MLS (1.67M) Gigaspeech2.5kh (2.12M) + ReazonSpeech3kh (1.86M) + WenetSpeech3kh (4.29M) = 9.94M
+  # 3. Open-source ASR with new tsv/chunk format:
+  #    CommonVoice15 5.21M + VoxPopuli (1.02M) +  openasr (ami 0.44M + earnings22 0.1M = 0.54M) = 6.77M
+  # ASR total = 11M + 9.94M + 6.77M = 27.71M
+
+  # ********** data details - st  **************
+  # production st: 1 * 19.35M + product st cot 6.11M + OpenST: 2.66 M = 28.12M
+
+  # ********** data details - sqa **************
+  # sqa_en: 2.55M * 2.83 = 7.2M
+  # sqa_other: 0.76M * 2.5 = 1.9M
+  # sqa_en_line1: 2.55M * 2.83 = 7.2M
+  # sqa_other_line1: 0.76M * 2.5 = 1.9M
+  # Total: 7.2M + 1.9M + 7.2M + 1.9M = 18.20M
+
+  # ********** data details - safty data **************
+  # safety data: 0.43M
+
+  # ********** Other data **************
+  # wavllm: 1 * 1.33M + ENSQA: 4 * 0.7M = 4.1 M
+
+  # total: 27.71M + 28.12M + 18.20M + 4.1 M + 0.4M = 78.53M
+
+  ##########  the beginning of the data config ##############
+  # asr yuxuan stage2 en asr data 5kh
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_en.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_earnings.json    # 0.12M
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 3
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # asr chunk data sampled from stage-1 training, 2kh for each language, 14khours
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_de.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_es.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_fr.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_it.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_ja_new.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_pt.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_zh.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # asr chunk data for the collected open-source ASR data
+  # MLS: en-2kh, de, es, fr, it, pt
+  # asr chunk data for the collected open-source ASR data
+  # Gigaspeech 2.5kh, ReazonSpeech 3kh, Wenetspeech 3kh
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json     # 484k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_de_asr.json        # 470k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_es_asr.json        # 223k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_fr_asr.json        # 258k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_it_asr.json        # 59.6k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_it_asr.json        # 59.6k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json        # 37.5k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json        # 37.5k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json        # 37.5k
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_ja_asr_3k.json              # 1.86M
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_zh_asr_3k.json              # 4.29M
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json    # 2.124M
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 400
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr-lexical
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    text_normalization:
+      case_normalize: "lower"     # lower for the gigaspeech
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # asr commonvoice15.0 tsv data sampled en fixed prompt + 7languages fixed + random prompt   4.3M examples + repetitions(0.31*2+0.007*6+0.02*4+0.03*4) + 0.04 fleurs=5.21M
+  # Num examples: [1070k, 568k, 311k, 528k, 166k, 7k, 21k, 29k]   en, de, es, fr, it, ja, pt, zh
+  # asr voxpopuli + 0.36 + 0.22 + 0.2 + 0.14 + 0.04 = 0.96M
+  # Num examples: [182k, 108k, 51k, 74k, 23k]   en, de, es, fr, it
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json     # - 1.07M
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json     # - 0.57M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json     # - 0.31M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json     # - 0.53M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json     # - 0.17M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json     # - 0.007M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json     # - 0.02M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json     # - 0.03M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json     # - 0.18M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json     # - 0.11M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json     # - 0.05M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json     # - 0.07M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json     # - 0.02M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json      # - 0.02M * 2
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 800
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # OpenASR: ami + earnings  0.11M*4 + 0.05M*2 = 0.54M
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json         # 0.11M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json         # 0.11M * 2
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json    # 0.05M * 2    # 0.27M * 2
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50    # no less than 30ms
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # ST production chunk data without prompt in data, should define in code
+  # Transciptions are sentenpiece, need to detokenize
+  # Training Examples 19350395
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/en2x_prod_st.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/x2en_prod_st_1k.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/M_to_En_1k.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: ast
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    sp_transcription: True
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # ST production chunk data with cot prompt in data, should define in code
+  # format: <transcription> <seq> <translation>
+  # Training Examples 6114710
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/x2en_prod_st_cot_1k.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: ast-cot
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    sp_transcription: False
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Chunk translation data on FLEURS and CoVoST2  # with prompt in data
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_en2x_train_cot.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_en2x_train.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_x2en_train_cot.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_x2en_train.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: ast
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # === SQA train_meta_* blocks DISABLED for nosqa throughput test (git-restorable) ===
+  # A: train_meta_en (2.55M -> 7.2M) DISABLED
+
+  # B: train_meta_{zh,de,es,fr,it,ja,pt} (0.76M) DISABLED
+
+  # C: train_meta_line1_en (2.55M) DISABLED
+
+  # D: train_meta_line1_{zh,de,es,fr,it,ja,pt} (2.55M) DISABLED
+
+  # num_utt=1,328,698
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/wavllm_chunk_asr.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr-lexical
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"     # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 500
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 3
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False # just in case there are extremely long answers
+    dataset_provider: blob_chunk_alm
+
+  # num_utt=1,328,698
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/wavllm_chunk_qa.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: sqa
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"     # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 500
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 3
+    weight: 2.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False # just in case there are extremely long answers
+    dataset_provider: blob_chunk_alm
+
+  # num_utt=692399
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/yx_stage2_data_qa.json   # 5k hours * 3 questions
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 3
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: sqa
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 4.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False  # just in case there are extremely long answers
+    dataset_provider: blob_chunk_alm
+
+  # safety data for 8 languages, sythetic audio from language safety data
+  # num_utt=127876 + 87842 = 215.7k
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_de.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_en.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_es.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_fr.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_it.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_ja.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_pt.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/hh_rlhf_zh.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_de.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_en.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_es.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_fr.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_it.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_ja.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_pt.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/safety_sythetic/pku_v2_zh.json
+
+    use_num_examples_as_durations: True
+    tsv_chunk_size: 128
+    retain_first_n_turns_in_conversation: 2
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: sqa
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 500
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 3
+    weight: 2.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # text sft data: 10.16M
+  - dataset_spec:
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/rm_dec_lm-sys-instruct_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/rm_dec_lm-sys-instruct-v2_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/dec_metamath_instruct_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/rm_dec_wizardcoder_gpt4_turbo_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/dec_orca-math-word-problems-200k_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/rm_dec_code_conversations_4_pt1_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/rm_dec_teknium_OpenHermes-2.5_gptscore9_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/greetings_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/format_data_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/instruction_following_clean_0602.json
+
+      # clean_0602/instruction_following_multilingual: 1.0
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/lm-sys-instruct_multilingual.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/khanacademy_multilingual.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/inflection_multilingual.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/WizardMath_multilingual.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/WizardLM2_multilingual.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/multilingual_switch.json
+      # function call
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/xlam-function-calling-60k-v4-pythonic-mixed.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/glaive-function-calling-v2-all-v2.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/xlam-function-calling-60k-v4.json
+      # summarization
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/summ_gpt.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/finewebedu_summ.json
+      # instruction following
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/ifeval_4o_55k.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/853k_ifeval.json
+      # tulu
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/tulu_v3_sft_gpt4o.json
+      # scale.ai
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/scaleai_30k.json
+      # coding data
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/code_fim_mix16_clean_0602.json
+      - ${oc.env:SPEECH_DATA_SPEC_ROOT}/text_sft/orca_data_tool_use_1M.json
+
+    use_num_examples_as_durations: True
+    tsv_chunk_size: 64
+    allow_pure_text_return: True
+    filter_options:
+      max_utterance_labels: 8192
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: text
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"    # "samples_to_sequence", "samples_to_batch"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+
+dataset_concat: random_iterable # [random, sequential]
+dataset_provider: blob_chunk_alm
+dataset_collator:
+  cls: blob_chunk_alm_dynamic
+  tokenizer: ${tokenizer}
+  audio_key: inputs_embeds
+  padding_mask: ${padding_mask}

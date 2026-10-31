@@ -1,0 +1,23 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Stage-1 EN-ASR (encoder + projector align, frozen LLM) *training* config (model/recipe
+# hyperparameters only), consumed by examples/models/speech_cascades/finetune.py --train-config-yaml.
+# Keys map 1:1 to finetune.py CLI flags (dashes -> underscores); any CLI flag passed explicitly
+# overrides the value here. Reusable across data mixtures: pick the data with --streaming-config-yaml
+# (e.g. data_en_asr_s1.yaml) and the run-specific paths (hf/output) via the launcher.
+
+freeze_language_model: true
+activation_recompute: true
+
+tensor_model_parallel_size: 1
+pipeline_model_parallel_size: 1
+global_batch_size: 64
+micro_batch_size: 1
+seq_length: 8192
+
+train_iters: 12000
+save_interval: 2000
+lr: 1.0e-4
+lr_warmup_iters: 100
+log_interval: 10

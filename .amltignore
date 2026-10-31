@@ -1,0 +1,15 @@
+# Reduce the amlt code upload: exclude VCS, caches, build artifacts, and large
+# local-only data that the cluster job does not need.
+.git/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.venv/
+build/
+dist/
+nemo_experiments/
+*.safetensors
+*.pt

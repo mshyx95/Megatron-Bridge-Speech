@@ -1,0 +1,31 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Qwen3.5-9B Speech Cascades LoRA on the stage-1 EN-ASR data.
+freeze_language_model: false
+freeze_audio_model: false
+activation_recompute: true
+
+tensor_model_parallel_size: 1
+pipeline_model_parallel_size: 1
+sequence_parallel: false
+expert_model_parallel_size: 1
+expert_tensor_parallel_size: 1
+global_batch_size: 64
+micro_batch_size: 1
+seq_length: 8192
+
+lora_rank: 320
+lora_alpha: 640
+lora_dropout: 0.01
+normalize_moe_lora: false
+per_expert_lora: false
+
+streaming_num_workers: 1
+streaming_prefetch_factor: 16
+train_iters: 12000
+save_interval: 8000
+lr: 2.0e-5
+lr_warmup_iters: 100
+log_interval: 10
+timing_log_level: 1

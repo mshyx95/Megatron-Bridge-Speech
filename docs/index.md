@@ -91,6 +91,8 @@ training/mimo-intra-microbatch-reorder.md
 training/multi-token-prediction.md
 training/dspark-speculative-decoding.md
 training/callbacks.md
+speech_cascades/verified-changes.md
+speech_cascades/hindi-eval.md
 ```
 
 ```{toctree}
