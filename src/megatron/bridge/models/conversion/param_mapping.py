@@ -1501,8 +1501,12 @@ class ReplicatedMapping(MegatronParamMapping[torch.Tensor]):
         if hasattr(megatron_module, "weight"):
             target_device = megatron_module.weight.device
         else:
-            # the parameter may not be called "weight"
-            target_device = next(megatron_module.parameters()).device
+            # the parameter may not be called "weight"; fall back to buffers for buffer-only
+            # modules (e.g. CMVN normalization layers that only register buffers)
+            tensor = next(megatron_module.parameters(), None)
+            if tensor is None:
+                tensor = next(megatron_module.buffers(), None)
+            target_device = tensor.device
         hf_weights = hf_weights.to(device=target_device)
         if self.tp_size == 1:
             return hf_weights

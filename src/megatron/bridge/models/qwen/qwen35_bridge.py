@@ -97,6 +97,8 @@ def _apply_qwen35_moe_config(provider: GPTModelProvider, text_config) -> None:
     provider.moe_shared_expert_gate = True
     provider.moe_grouped_gemm = True
     provider.moe_router_load_balancing_type = "global_aux_loss"
+    if hasattr(text_config, "router_aux_loss_coef"):
+        provider.moe_aux_loss_coeff = text_config.router_aux_loss_coef
     provider.moe_router_pre_softmax = False
     provider.moe_token_dispatcher_type = "alltoall"
     provider.moe_permute_fusion = True

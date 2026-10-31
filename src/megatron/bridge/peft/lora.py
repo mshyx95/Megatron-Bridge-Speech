@@ -38,6 +38,7 @@ from megatron.bridge.peft.utils import (
     SharedOuterGroupedExpertAdapter,
     align_expert_dim_for_tp,
     get_adapter_attributes_from_linear,
+    get_effective_lora_alpha,
     get_effective_lora_dim,
     is_expert_linear,
     is_grouped_expert_linear,
@@ -203,6 +204,13 @@ class LoRA(PEFT, ModuleMatcher):
                 is_expert=is_expert,
                 input_is_parallel=attrs.input_is_parallel,
             )
+            alpha = get_effective_lora_alpha(
+                alpha=self.alpha,
+                dim=self.dim,
+                effective_dim=dim,
+                normalize_moe_lora=self.normalize_moe_lora,
+                is_expert=is_expert,
+            )
             is_grouped_expert_name = is_grouped_expert_linear(full_name)
             use_shared_outer_adapter = self.experts_shared_outer_loras and is_grouped_expert_name
             use_per_expert_adapter = (
@@ -218,7 +226,13 @@ class LoRA(PEFT, ModuleMatcher):
                 and parallel_state.get_tensor_model_parallel_world_size() == 1
             )
 
-            logger.info(f"Adding lora to: {full_name}")
+            logger.info(
+                "Adding lora to: %s (dim=%s, alpha=%s, scaling=%s)",
+                full_name,
+                dim,
+                alpha,
+                alpha / dim,
+            )
             if use_shared_outer_adapter:
                 adapter_cls = SharedOuterGroupedExpertAdapter
             elif use_per_expert_adapter:
@@ -234,7 +248,7 @@ class LoRA(PEFT, ModuleMatcher):
                 dropout=self.dropout,
                 dropout_position=self.dropout_position,
                 model_parallel_config=module.config,
-                alpha=self.alpha,
+                alpha=alpha,
                 base_linear_is_parallel=attrs.base_linear_is_parallel,
             )
             if use_grouped_expert_adapter:

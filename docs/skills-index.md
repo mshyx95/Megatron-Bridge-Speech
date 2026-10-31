@@ -11,6 +11,7 @@ and verification steps.
 
 skills/build-and-dependency/SKILL
 skills/bump-dependency/SKILL
+skills/upstream-forward-port/SKILL
 skills/testing/SKILL
 skills/cicd/SKILL
 skills/review-pr/SKILL

@@ -1,0 +1,37 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Full Qwen3.6-35B-A3B stage-1 EN-ASR training with TP1/EP8 on 16 H100 GPUs
+
+<<: !include .speech-vc02.local.yaml
+
+env_defaults:
+  <<: *speech_vc02_env
+  JOB_NAME: qwen36-35b-a3b-speech-moe-stage1-full-16gpu-vc02
+  BASE_HF: *qwen36_base_hf
+  MODEL_HF: *qwen36_model_hf
+  OUTPUT_ROOT: *qwen36_moe_output
+  TRAIN_CONFIG: projects/cluster/train_en_asr_s1_qwen36_moe_h100.yaml
+  DATA_CONFIG: projects/cluster/data_en_asr_s1.yaml
+
+jobs:
+  - <<: *speech_vc02_job
+    name: ${JOB_NAME}
+    sku: ${NODES}x${SKU}
+    sla_tier: ${sla_tier}
+    priority: low
+    command:
+      - nvidia-smi
+      - export BASE_HF=${BASE_HF}
+      - export ENC_CKPT=${ENC_CKPT}
+      - export MODEL_HF=${MODEL_HF}
+      - export OUTPUT_ROOT=${OUTPUT_ROOT}
+      - export TRAIN_CONFIG=${TRAIN_CONFIG}
+      - export DATA_CONFIG=${DATA_CONFIG}
+      - export ETP=1 TP=1 EP=8 SEQUENCE_PARALLEL=0
+      - export BLOBCHUNK_DOWNLOAD_MAX_WORKERS=$${BLOBCHUNK_DOWNLOAD_MAX_WORKERS:-10}
+      - export DATALOADER_PROFILE=$${DATALOADER_PROFILE:-1}
+      - export OUTPUT=${OUTPUT_ROOT}/tp1-ep8
+      - mkdir -p ${OUTPUT_ROOT}/logs
+      - set -eo pipefail
+      - bash projects/cluster/run_speech_cascades_stage1.sh 2>&1 | tee "${OUTPUT_ROOT}/logs/tp1-ep8.rank$${RANK:-0}.log"

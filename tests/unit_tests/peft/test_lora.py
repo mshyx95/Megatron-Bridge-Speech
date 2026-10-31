@@ -599,7 +599,12 @@ class TestLoRANormalizeMoE:
     def test_normalize_moe_lora_reduces_expert_dim(self):
         """Expert layers should get dim // moe_router_topk when normalize_moe_lora is enabled."""
         model = MoEModel(moe_router_topk=2)
-        lora = LoRA(target_modules=["linear_fc1", "linear_fc2", "linear_proj"], dim=32, normalize_moe_lora=True)
+        lora = LoRA(
+            target_modules=["linear_fc1", "linear_fc2", "linear_proj"],
+            dim=32,
+            alpha=64,
+            normalize_moe_lora=True,
+        )
 
         def mock_get_attrs(module, is_expert=False, sequence_parallel_input_regather=False):
             assert sequence_parallel_input_regather is False
@@ -623,18 +628,20 @@ class TestLoRANormalizeMoE:
             name = call.kwargs.get("base_linear_name", "")
             dim_used = call.args[2] if len(call.args) > 2 else call.kwargs.get("dim")
             if ".mlp.experts." in name and ".shared_experts." not in name:
-                expert_calls[name] = dim_used
+                expert_calls[name] = (dim_used, call.kwargs["alpha"])
             else:
-                non_expert_calls[name] = dim_used
+                non_expert_calls[name] = (dim_used, call.kwargs["alpha"])
 
         assert len(expert_calls) > 0, "Should have expert adapter calls"
         assert len(non_expert_calls) > 0, "Should have non-expert adapter calls"
 
-        for name, dim_used in expert_calls.items():
+        for name, (dim_used, alpha_used) in expert_calls.items():
             assert dim_used == 16, f"Expert layer {name} should get dim=16 (32 // 2), got {dim_used}"
+            assert alpha_used == 32, f"Expert layer {name} should preserve alpha/dim=2, got alpha={alpha_used}"
 
-        for name, dim_used in non_expert_calls.items():
+        for name, (dim_used, alpha_used) in non_expert_calls.items():
             assert dim_used == 32, f"Non-expert layer {name} should get full dim=32, got {dim_used}"
+            assert alpha_used == 64, f"Non-expert layer {name} should keep alpha=64, got {alpha_used}"
 
     def test_normalize_moe_lora_disabled_uses_full_dim(self):
         """All layers should get full dim when normalize_moe_lora is False (default)."""

@@ -1,0 +1,77 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Native Megatron-Bridge stage-2 speech->text KD on Singularity (aiservices-vc02-eu2 / eus2).
+# From scratch: builds the HF from base Qwen3.5 + the cascades encoder (random projector), freezes the
+# encoder + Qwen3.5 LM and trains the audio projector with the main-path KL+CE distillation loss.
+# MTP is off for this run (MTP_LAYERS=0; the MTP + HF-load bridge path is WIP). Two-phase warm(500) ->
+# full(4000); streams the ASR:nothink:continuation = 1:1:1 KD data mixture (data_en_s2_kd_3way.yaml,
+# knowledge_distillation: True).
+
+description: yuxuanhu_s2s_qwen bridge 4B S2 KD projector-only, 3way 1:1:1 data, from scratch (VC02, torch210)
+
+env_defaults:
+  NODES: 2
+  SKU: 80G8-H100-IB-NvLink
+  sla_tier: standard
+  TARGET: aiservices-vc02-eu2
+  IMAGE: megatron-bridge-speech:dev-yuxuanhu-s2s_qwen_dev-636166
+  JOB_NAME: qwen3-5-4b-s2-kd-3way-projonly-torch210
+  OUTPUT: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/s2-kd-3way-projonly-torch210
+  # From scratch: build the HF from base Qwen3.5 + the cascades encoder (random projector); no stage-1.
+  BASE_HF: /datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B
+  ENC_CKPT: /datablob1/users/ruchaofan/cascades_speech_encoder/checkpoint_22L/model.checkpoint
+  # Reusable configs: swap DATA_CONFIG to change the data mixture; edit TRAIN_CONFIG for hyperparameters.
+  TRAIN_CONFIG: projects/cluster/train_s2_kd_mtp4.yaml
+  DATA_CONFIG: projects/cluster/data_en_s2_kd_3way.yaml
+  # MTP off for this run (the MTP + HF-load bridge path is WIP); trains the projector only.
+  MTP_LAYERS: 0
+
+target:
+  service: sing
+  name: ${TARGET}
+  workspace_name: aiservices-prod-ws02-eus2
+
+environment:
+  registry: speechllmregistry.azurecr.io
+  image: ${IMAGE}
+
+storage:
+  output:
+    storage_account_name: tsstd01eus2
+    container_name: amulet
+  model_blob:
+    storage_account_name: tsstd01eus2
+    container_name: data
+    mount_dir: /modelblob
+  data_blob:
+    storage_account_name: highperf01eus2
+    container_name: data
+    mount_dir: /datablob1
+
+code:
+  local_dir: $CONFIG_DIR/../..
+
+jobs:
+  - name: ${JOB_NAME}
+    sku: ${NODES}x${SKU}
+    sla_tier: ${sla_tier}
+    priority: low
+    mpi: True
+    process_count_per_node: 8
+    command:
+      - nvidia-smi
+      - export OUTPUT=${OUTPUT}
+      - export BASE_HF=${BASE_HF}
+      - export ENC_CKPT=${ENC_CKPT}
+      - export TRAIN_CONFIG=${TRAIN_CONFIG}
+      - export DATA_CONFIG=${DATA_CONFIG}
+      - export MTP_LAYERS=${MTP_LAYERS}
+      - bash projects/cluster/run_speech_cascades_s2_kd.sh
+    submit_args:
+      container_args:
+        SHARED_MEMORY_PERCENT: 0.5
+      env:
+        NCCL_DEBUG: "INFO"
+        _AZUREML_SINGULARITY_JOB_UAI: aiservices-training-c02-uai-eus2
+    identity: managed
