@@ -52,6 +52,7 @@ TrainFunctionEntry = Callable | tuple[str, str]
 
 STEP_FUNCTIONS: dict[str, StepFunctionEntry] = {
     "audio_lm_step": ("megatron.bridge.training.audio_lm_step", "forward_step"),
+    "dpo_step": ("megatron.bridge.training.dpo_step", "forward_step"),
     "dsv4_step": ("megatron.bridge.models.deepseek.deepseek_v4_step", "forward_step"),
     "gpt_step": ("megatron.bridge.training.gpt_step", "forward_step"),
     "llm_step": ("megatron.bridge.training.gpt_step", "forward_step"),
@@ -63,11 +64,13 @@ STEP_FUNCTIONS: dict[str, StepFunctionEntry] = {
     "nemotron_omni_step": ("megatron.bridge.training.nemotron_omni_step", "forward_step"),
     "flux_step": ("megatron.bridge.diffusion.models.flux.flux_step", "FluxForwardStep"),
     "wan_step": ("megatron.bridge.diffusion.models.wan.wan_step", "WanForwardStep"),
+    "bagel_step": ("megatron.bridge.models.bagel.bagel_step", "BagelForwardStep"),
     "speech_cascades_step": ("megatron.bridge.models.speech_cascades.step", "forward_step"),
 }
 
 STEP_MODALITIES = {
     "audio_lm_step": "audio",
+    "dpo_step": "text",
     "dsv4_step": "text",
     "gpt_step": "text",
     "llm_step": "text",
@@ -79,12 +82,14 @@ STEP_MODALITIES = {
     "nemotron_omni_step": "vlm",
     "flux_step": "diffusion",
     "wan_step": "diffusion",
+    "bagel_step": "omni",
     "speech_cascades_step": "audio",
 }
 
 TRAIN_FUNCTIONS: dict[str, TrainFunctionEntry] = {
     "pretrain": ("megatron.bridge.training.pretrain", "pretrain"),
     "finetune": ("megatron.bridge.training.finetune", "finetune"),
+    "dpo": ("megatron.bridge.training.dpo_train", "dpo_train"),
 }
 
 ERR_UNKNOWN_STEP = "Unknown step type: {step_type}. Choose from: {choices}"
@@ -233,7 +238,10 @@ def load_recipe(
     seq_length: int | None = None,
 ) -> ConfigContainer:
     """Load an exact benchmark recipe when exported, otherwise a library recipe."""
-    if resolved_benchmark_recipe_metadata(recipe_name) is not None:
+    benchmark_metadata = resolved_benchmark_recipe_metadata(recipe_name)
+    if benchmark_metadata is not None:
+        # The resolved name replaces a deprecated hardware name in the requested one.
+        recipe_name = benchmark_metadata.recipe_name
         config_builder = find_benchmark_recipe(recipe_name)
         package_name = "megatron.bridge.perf_recipes"
         recipe_kind = "benchmark"

@@ -27,7 +27,12 @@ from megatron.core.transformer.enums import AttnBackend
 
 from megatron.bridge.models.conversion import quantization_utils
 from megatron.bridge.models.conversion.mapping_registry import MegatronMappingRegistry
-from megatron.bridge.models.conversion.model_bridge import HFWeightTuple, MegatronModelBridge, WeightConversionTask
+from megatron.bridge.models.conversion.model_bridge import (
+    HFSourcedWeightTuple,
+    HFWeightTuple,
+    MegatronModelBridge,
+    WeightConversionTask,
+)
 from megatron.bridge.models.conversion.param_mapping import (
     AutoMapping,
     ColumnParallelMapping,
@@ -340,6 +345,9 @@ class KimiK3Bridge(MegatronModelBridge):
         hf_pretrained,
         megatron_model,
         weight_dtype=None,
+        *,
+        exclude_module_types: tuple[type[torch.nn.Module], ...] = (),
+        exclude_param_patterns: tuple[str, ...] = (),
     ) -> list[WeightConversionTask]:
         """Expose virtual BF16 expert weights for MXFP4 packed/scale pairs."""
         original_get_all_keys = hf_pretrained.state.source.get_all_keys
@@ -357,7 +365,13 @@ class KimiK3Bridge(MegatronModelBridge):
 
         hf_pretrained.state.source.get_all_keys = _get_all_keys_with_virtual
         try:
-            return super().build_conversion_tasks(hf_pretrained, megatron_model, weight_dtype=weight_dtype)
+            return super().build_conversion_tasks(
+                hf_pretrained,
+                megatron_model,
+                weight_dtype=weight_dtype,
+                **({"exclude_module_types": exclude_module_types} if exclude_module_types else {}),
+                **({"exclude_param_patterns": exclude_param_patterns} if exclude_param_patterns else {}),
+            )
         finally:
             hf_pretrained.state.source.get_all_keys = original_get_all_keys
 
@@ -371,7 +385,9 @@ class KimiK3Bridge(MegatronModelBridge):
         conversion_tasks: list[WeightConversionTask] | None = None,
         merge_adapter_weights: bool = True,
         weight_dtype: torch.dtype | None = None,
-    ) -> Iterable[HFWeightTuple]:
+        with_megatron_names: bool = False,
+        current_pp_stage_only: bool = False,
+    ) -> Iterable[HFWeightTuple | HFSourcedWeightTuple]:
         """Export the language model and preserve unchanged multimodal weights."""
         yield from super().stream_weights_megatron_to_hf(
             megatron_model,
@@ -381,7 +397,14 @@ class KimiK3Bridge(MegatronModelBridge):
             conversion_tasks=conversion_tasks,
             merge_adapter_weights=merge_adapter_weights,
             weight_dtype=weight_dtype,
+            with_megatron_names=with_megatron_names,
+            current_pp_stage_only=current_pp_stage_only,
         )
+        if not self._should_emit_hf_passthrough(megatron_model, current_pp_stage_only=current_pp_stage_only):
+            return
+        # Passthrough tensors are copied straight from the HF checkpoint and have no
+        # Megatron counterpart, so with ``with_megatron_names`` they carry zero sources.
+        passthrough_sources = () if with_megatron_names else None
 
         state = getattr(hf_pretrained, "state", None)
         source = getattr(state, "source", None)
@@ -389,4 +412,6 @@ class KimiK3Bridge(MegatronModelBridge):
             return
         for name in source.get_all_keys():
             if name.startswith(self._HF_PASSTHROUGH_PREFIXES):
-                yield from HFWeightTuple(name, state[name]).iter_finalized(cpu=cpu)
+                yield from HFWeightTuple(name, state[name]).iter_finalized(
+                    cpu=cpu, megatron_param_names=passthrough_sources
+                )

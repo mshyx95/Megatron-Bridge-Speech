@@ -25,11 +25,15 @@ Tests cover:
 
 import os
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 import torch
 
-from megatron.bridge.models.hybrid.hybrid_provider import HybridModelProvider
+from megatron.bridge.models.hybrid import BridgeHybridModelConfig
+from megatron.bridge.recipes.nemotronh.gb200.nemotron_3_super import (
+    nemotron_3_super_pretrain_64gpu_gb200_bf16_config,
+)
 from megatron.bridge.recipes.nemotronh.h100.nemotron_3_super import (
     nemotron_3_super_peft_16gpu_h100_bf16_config,
     nemotron_3_super_pretrain_16gpu_h100_bf16_config,
@@ -42,6 +46,58 @@ from megatron.bridge.recipes.nemotronh.nemotron_3_super import (
     nemotron_3_super_sft_config,
 )
 from megatron.bridge.training.config import ConfigContainer
+from tests.unit_tests.recipes.recipe_test_utils import nemotron_h_model_config
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        nemotron_3_super_pretrain_config,
+        nemotron_3_super_pretrain_16gpu_h100_bf16_config,
+        nemotron_3_super_pretrain_64gpu_gb200_bf16_config,
+        nemotron_3_super_sft_config,
+        nemotron_3_super_sft_16gpu_h100_bf16_config,
+        nemotron_3_super_sft_16gpu_h100_bf16_32k_config,
+        nemotron_3_super_peft_config,
+        nemotron_3_super_peft_16gpu_h100_bf16_config,
+    ],
+)
+def test_text_only_source_preserves_super_recipe_policy(monkeypatch, recipe):
+    calls = []
+
+    def from_hf(path, **kwargs):
+        calls.append((path, kwargs))
+        model_config = nemotron_h_model_config(
+            path, hybrid_override_pattern="ME*E", num_nextn_predict_layers=1, mtp_hybrid_override_pattern="*E"
+        )
+        if kwargs.get("revision"):
+            model_config.extra_checkpoint_metadata["hf_model_revision"] = kwargs["revision"]
+        return SimpleNamespace(
+            get_model_config=lambda: model_config,
+            hf_model_revision=kwargs.get("revision"),
+        )
+
+    monkeypatch.setattr("megatron.bridge.AutoBridge.from_hf_pretrained", from_hf)
+    original = recipe()
+    selected = recipe(hf_path="org/vl", text_only=True, revision="pinned", trust_remote_code=True)
+    # HF stores one shared block; recipes explicitly choose two prediction depths.
+    assert original.model.mtp_num_layers == selected.model.mtp_num_layers == 2
+    assert original.model.mtp_use_repeated_layer is selected.model.mtp_use_repeated_layer is True
+    assert calls[-1] == ("org/vl", {"text_only": True, "revision": "pinned", "trust_remote_code": True})
+    assert selected.tokenizer.tokenizer_model == "org/vl"
+    assert selected.tokenizer.hf_tokenizer_kwargs["revision"] == "pinned"
+    assert selected.checkpoint.hf_trust_remote_code
+    expected = original.to_dict()
+    actual = selected.to_dict()
+    expected.pop("tokenizer")
+    actual.pop("tokenizer")
+    expected["checkpoint"].pop("hf_trust_remote_code")
+    actual["checkpoint"].pop("hf_trust_remote_code")
+    # Only the recorded Hugging Face source differs.
+    assert actual["model"].pop("extra_checkpoint_metadata") == {"hf_model_id": "org/vl", "hf_model_revision": "pinned"}
+    expected["model"].pop("extra_checkpoint_metadata")
+    assert actual == expected
 
 
 @pytest.mark.unit
@@ -57,7 +113,7 @@ class TestNemotron3SuperPretrain:
         config = nemotron_3_super_pretrain_config()
 
         assert isinstance(config, ConfigContainer)
-        assert isinstance(config.model, HybridModelProvider)
+        assert isinstance(config.model, BridgeHybridModelConfig)
 
         # Check model configuration defaults
         assert config.model.tensor_model_parallel_size == 1
@@ -116,7 +172,6 @@ class TestNemotron3SuperPretrain:
         # Verify MTP recipe-level settings
         # Note: the recipe overrides mtp_use_repeated_layer=True (provider default is False)
         assert config.model.mtp_use_repeated_layer is True
-        assert config.model.keep_mtp_spec_in_bf16 is True
         assert config.model.calculate_per_token_loss is True
         assert config.model.mtp_loss_scaling_factor == 0.3
 
@@ -149,7 +204,7 @@ class TestNemotron3SuperSft:
         config = nemotron_3_super_sft_config()
 
         assert isinstance(config, ConfigContainer)
-        assert isinstance(config.model, HybridModelProvider)
+        assert isinstance(config.model, BridgeHybridModelConfig)
 
         # Check parallelism for full SFT
         assert config.model.tensor_model_parallel_size == 8
@@ -252,7 +307,7 @@ class TestNemotron3SuperPeft:
         config = nemotron_3_super_peft_config()
 
         assert isinstance(config, ConfigContainer)
-        assert isinstance(config.model, HybridModelProvider)
+        assert isinstance(config.model, BridgeHybridModelConfig)
 
         # Check default parallelism for LoRA
         assert config.model.tensor_model_parallel_size == 1
@@ -302,7 +357,7 @@ class TestNemotron3SuperCommon:
         config = recipe_fn()
 
         assert isinstance(config, ConfigContainer)
-        assert isinstance(config.model, HybridModelProvider)
+        assert isinstance(config.model, BridgeHybridModelConfig)
 
         # Check required sections exist
         assert config.train is not None

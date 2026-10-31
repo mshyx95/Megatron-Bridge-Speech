@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import torch
-from megatron.core.dist_checkpointing.strategies.torch import get_async_strategy
+from megatron.core.dist_checkpointing.strategies.nvrx import has_nvrx_async_support
 from megatron.core.energy_monitor import EnergyMonitor
 from megatron.core.process_groups_config import ProcessGroupCollection
 from megatron.core.timers import Timers
@@ -37,6 +37,9 @@ from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 from megatron.bridge.training.utils.log_utils import safe_serialize
 from megatron.bridge.training.utils.sig_utils import DistributedSignalHandler
 from megatron.bridge.utils.common_utils import get_rank_safe, get_world_size_safe
+
+
+HAVE_NVRX = has_nvrx_async_support()
 
 
 @dataclass
@@ -74,13 +77,15 @@ class TrainState(Stateful):
             "floating_point_operations_so_far": torch.tensor(
                 self.floating_point_operations_so_far, dtype=torch.float64
             ),
-            "do_train": torch.tensor(self.do_train, dtype=torch.bool),
-            "do_valid": torch.tensor(self.do_valid, dtype=torch.bool),
-            "do_test": torch.tensor(self.do_test, dtype=torch.bool),
         }
 
     def load_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
         """Load the training state from a state dictionary.
+
+        The ``do_train``/``do_valid``/``do_test`` flags are optional: Megatron-LM
+        train-state checkpoints no longer persist them because they are derived
+        from the dataloaders at setup time. When a flag is absent, its current
+        value is kept.
 
         Args:
             state_dict: A dictionary containing the state variables as tensors.
@@ -90,9 +95,6 @@ class TrainState(Stateful):
         self.skipped_train_samples = state_dict["skipped_train_samples"].item()
         self.consumed_valid_samples = state_dict["consumed_valid_samples"].item()
         self.floating_point_operations_so_far = state_dict["floating_point_operations_so_far"].item()
-        self.do_train = state_dict["do_train"].item()
-        self.do_valid = state_dict["do_valid"].item()
-        self.do_test = state_dict["do_test"].item()
 
 
 @dataclass
@@ -133,6 +135,7 @@ class GlobalState:
         self._comet_logger: Optional[Any] = None
         self._timers: Optional[Timers] = None
         self._train_state: Optional[TrainState] = None
+        self._zero_token_iters: Optional[torch.Tensor] = None
         self.rank_monitor_client: Optional[Any] = None
         self._signal_handler: Optional[DistributedSignalHandler] = None
         self.start_time: float = time.time()
@@ -418,21 +421,24 @@ class GlobalState:
             and self.cfg.checkpoint.save is not None
             and self.cfg.checkpoint.async_save
         ):
-            async_strategy, async_modules = get_async_strategy(self.cfg.checkpoint.async_strategy)
-            async_calls_queue_cls = async_modules["AsyncCallsQueue"]
-            get_write_results_queue_fn = async_modules["get_write_results_queue"]
+            if HAVE_NVRX:
+                from nvidia_resiliency_ext.checkpointing.async_ckpt.core import AsyncCallsQueue
+                from nvidia_resiliency_ext.checkpointing.async_ckpt.filesystem_async import get_write_results_queue
 
-            self._async_calls_queue = async_calls_queue_cls(persistent=self.cfg.checkpoint.use_persistent_ckpt_worker)
+                self._async_calls_queue = AsyncCallsQueue(persistent=self.cfg.checkpoint.use_persistent_ckpt_worker)
 
-            if self.cfg.checkpoint.use_persistent_ckpt_worker:
-                warmup_kwargs = {
-                    "cpu_priority": self.cfg.checkpoint.async_ckpt_cpu_priority,
-                    "io_priority": self.cfg.checkpoint.async_ckpt_io_priority,
-                }
-                if async_strategy == "mcore":
-                    warmup_kwargs["mp_mode"] = "spawn"
-                self._async_calls_queue.warmup_persistent_caller(get_rank_safe(), **warmup_kwargs)
-                get_write_results_queue_fn(self.cfg.checkpoint.async_write_results_mp_mode)
+                if self.cfg.checkpoint.use_persistent_ckpt_worker:
+                    warmup_kwargs = {
+                        "cpu_priority": self.cfg.checkpoint.async_ckpt_cpu_priority,
+                        "io_priority": self.cfg.checkpoint.async_ckpt_io_priority,
+                    }
+                    self._async_calls_queue.warmup_persistent_caller(get_rank_safe(), **warmup_kwargs)
+                    get_write_results_queue(self.cfg.checkpoint.async_write_results_mp_mode)
+            else:
+                raise ModuleNotFoundError(
+                    "`nvidia-resiliency-ext` should be installed to use async save. "
+                    "`pip install nvidia-resiliency-ext`"
+                )
 
     @property
     def async_calls_queue(self) -> Optional[Any]:
@@ -493,6 +499,8 @@ class GlobalState:
                 setattr(model_config, callback_name, None)
         self._timers = None
         self._train_state = None
+        # Discard the interrupted logging interval, including its device buffer.
+        self._zero_token_iters = None
         if self._tensorboard_logger is not None:
             self._tensorboard_logger.close()
         self._tensorboard_logger = None

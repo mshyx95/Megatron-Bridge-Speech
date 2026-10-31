@@ -15,6 +15,7 @@
 """Configuration checks for Qwen3 235B Blackwell NVFP4 full-iteration recipes."""
 
 import pytest
+from scripts.common.benchmark_parallelism import data_parallel_size, topology_from_config
 
 from megatron.bridge.perf_recipes.qwen import (
     qwen3_235b_a22b_pretrain_64gpu_gb200_nvfp4_full_iteration_config,
@@ -29,6 +30,9 @@ from tests.unit_tests.recipes.recipe_test_utils import patch_recipe_construction
 
 pytestmark = pytest.mark.unit
 
+# GB300 perf recipes dispatch through NCCL EP (no HybridEP topology in their environment).
+_NCCLEP_RECIPES = {qwen3_235b_a22b_pretrain_256gpu_gb300_nvfp4_config}
+
 
 @pytest.fixture(autouse=True)
 def _keep_recipe_construction_offline(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,40 +40,59 @@ def _keep_recipe_construction_offline(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("recipe", "expected_parallelism", "expected_avoid_record_streams", "expected_nvlink_domain_size"),
+    (
+        "recipe",
+        "num_gpus",
+        "expected_data_parallel_size",
+        "expected_parallelism",
+        "expected_avoid_record_streams",
+        "expected_nvlink_domain_size",
+    ),
     [
         (
             qwen3_235b_a22b_pretrain_256gpu_b200_nvfp4_config,
+            256,
+            32,
             (1, 8, 3, 8),
             1,
             8,
         ),
         (
             qwen3_235b_a22b_pretrain_256gpu_b300_nvfp4_config,
+            256,
+            32,
             (1, 8, 3, 8),
             1,
             8,
         ),
         (
             qwen3_235b_a22b_pretrain_64gpu_gb200_nvfp4_full_iteration_config,
-            (1, 8, 3, 32),
+            64,
+            8,
+            (1, 8, 3, 8),
             0,
             72,
         ),
         (
             qwen3_235b_a22b_pretrain_256gpu_gb200_nvfp4_config,
+            256,
+            32,
             (1, 8, 3, 32),
             0,
             72,
         ),
         (
             qwen3_235b_a22b_pretrain_64gpu_gb300_nvfp4_full_iteration_config,
-            (1, 4, 12, 32),
+            64,
+            32,
+            (1, 2, 12, 32),
             0,
             72,
         ),
         (
             qwen3_235b_a22b_pretrain_256gpu_gb300_nvfp4_config,
+            256,
+            64,
             (1, 4, 12, 32),
             0,
             72,
@@ -77,7 +100,12 @@ def _keep_recipe_construction_offline(monkeypatch: pytest.MonkeyPatch) -> None:
     ],
 )
 def test_qwen3_235b_blackwell_nvfp4_full_iteration_stack(
-    recipe, expected_parallelism, expected_avoid_record_streams, expected_nvlink_domain_size
+    recipe,
+    num_gpus,
+    expected_data_parallel_size,
+    expected_parallelism,
+    expected_avoid_record_streams,
+    expected_nvlink_domain_size,
 ) -> None:
     cfg = recipe()
 
@@ -91,7 +119,8 @@ def test_qwen3_235b_blackwell_nvfp4_full_iteration_stack(
     assert cfg.model.use_te_rng_tracker is True
     assert cfg.rng.te_rng_tracker is True
 
-    assert cfg.model.moe_flex_dispatcher_backend == "hybridep"
+    expected_dispatcher_backend = "ncclep" if recipe in _NCCLEP_RECIPES else "hybridep"
+    assert cfg.model.moe_flex_dispatcher_backend == expected_dispatcher_backend
     assert cfg.model.moe_token_dispatcher_type == "flex"
     assert cfg.model.moe_shared_expert_overlap is False
     assert cfg.model.moe_paged_stash is True
@@ -107,7 +136,12 @@ def test_qwen3_235b_blackwell_nvfp4_full_iteration_stack(
     assert cfg.env_vars["NVTE_CUTEDSL_FUSED_GROUPED_MLP"] == 1
     assert cfg.env_vars["NVTE_USE_FAST_MATH"] == 1
     assert cfg.env_vars["TORCH_NCCL_AVOID_RECORD_STREAMS"] == expected_avoid_record_streams
-    assert cfg.env_vars["NVLINK_DOMAIN_SIZE"] == expected_nvlink_domain_size
+    if expected_dispatcher_backend == "hybridep":
+        assert cfg.env_vars["NVLINK_DOMAIN_SIZE"] == expected_nvlink_domain_size
+        assert cfg.env_vars["NUM_OF_HYBRID_EP_RANKS_PER_NVLINK_DOMAIN"] == cfg.model.expert_model_parallel_size
+    else:
+        assert cfg.env_vars["NCCL_EP_HT_EM_PULL_PUSH"] == 1
+        assert "NVLINK_DOMAIN_SIZE" not in cfg.env_vars
     assert "graph_capture_record_stream_reuse:True" in cfg.env_vars["PYTORCH_CUDA_ALLOC_CONF"]
 
     actual_parallelism = (
@@ -117,3 +151,6 @@ def test_qwen3_235b_blackwell_nvfp4_full_iteration_stack(
         cfg.model.expert_model_parallel_size,
     )
     assert actual_parallelism == expected_parallelism
+    assert (
+        data_parallel_size(num_gpus=num_gpus, topology=topology_from_config(cfg.model)) == expected_data_parallel_size
+    )
