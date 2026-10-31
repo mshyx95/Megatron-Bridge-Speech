@@ -4,10 +4,12 @@
 
 import io
 import os
+import threading
 import time
 import logging
 from dataclasses import dataclass
 from typing import Optional, Callable
+from urllib.parse import unquote, urlparse
 
 import backoff
 import requests
@@ -47,13 +49,13 @@ class AzureDownloaderConfig:
     retry_status: int = 6
 
     # Transfer tuning
-    max_single_get_size: int = 32 * 1024 * 1024
+    max_single_get_size: int = 4 * 1024 * 1024
     max_chunk_get_size: int = 4 * 1024 * 1024
 
     # Download behavior
     chunk_size: int = 4 * 1024 * 1024
-    stall_timeout_s: float = 0.3
-    request_timeout_s: float = 5.0
+    stall_timeout_s: float = 0.3  # Legacy setting; socket stalls use request_timeout_s.
+    request_timeout_s: float = 30.0
     max_concurrency: int = 8
     max_attempts: int = 16
     log_every_s: float = 3.0
@@ -77,6 +79,8 @@ class AzureBlobDownloader:
         self.cfg = cfg
         self._cred = None
         self._container: Optional[ContainerClient] = None
+        self._containers = {}
+        self._containers_lock = threading.Lock()
 
         # Optional hook called on each retry (index starts at 1)
         self.on_retry: Optional[Callable[[int, Exception, int], None]] = None
@@ -97,9 +101,13 @@ class AzureBlobDownloader:
 
         self._cred = ManagedIdentityCredential(client_id=client_id)
 
-        self._container = ContainerClient(
-            account_url=self.cfg.account_url,
-            container_name=self.cfg.container_name,
+        self._container = self._create_container_client(self.cfg.account_url, self.cfg.container_name)
+        self._containers[(self.cfg.account_url.rstrip("/"), self.cfg.container_name)] = self._container
+
+    def _create_container_client(self, account_url: str, container_name: str) -> ContainerClient:
+        return ContainerClient(
+            account_url=account_url,
+            container_name=container_name,
             credential=self._cred,
             retry_total=self.cfg.retry_total,
             retry_connect=self.cfg.retry_connect,
@@ -108,6 +116,36 @@ class AzureBlobDownloader:
             max_single_get_size=self.cfg.max_single_get_size,
             max_chunk_get_size=self.cfg.max_chunk_get_size,
         )
+
+    @staticmethod
+    def _split_blob_url(blob_name: str) -> tuple[str, str, str] | None:
+        parsed = urlparse(blob_name)
+        if parsed.scheme not in {"http", "https", "az"} or not parsed.netloc:
+            return None
+        path_parts = parsed.path.lstrip("/").split("/", 1)
+        if len(path_parts) != 2 or not all(path_parts):
+            raise ValueError("Azure blob URL must include a container and blob path")
+        account_url = (
+            f"https://{parsed.netloc}.blob.core.windows.net"
+            if parsed.scheme == "az"
+            else f"{parsed.scheme}://{parsed.netloc}"
+        )
+        return account_url, unquote(path_parts[0]), unquote(path_parts[1])
+
+    def _resolve_blob(self, blob_name: str) -> tuple[ContainerClient, str]:
+        self._ensure_client()
+        split_url = self._split_blob_url(blob_name)
+        if split_url is None:
+            return self._container, blob_name
+
+        account_url, container_name, relative_blob_name = split_url
+        key = (account_url.rstrip("/"), container_name)
+        with self._containers_lock:
+            container = self._containers.get(key)
+            if container is None:
+                container = self._create_container_client(account_url, container_name)
+                self._containers[key] = container
+        return container, relative_blob_name
 
     @staticmethod
     def _is_retryable_exception(exc: Exception) -> bool:
@@ -198,6 +236,7 @@ class AzureBlobDownloader:
         last_log = time.monotonic()
         attempt = 0
         last_exc = None
+        container, relative_blob_name = self._resolve_blob(blob_name)
 
         while True:
             attempt += 1
@@ -206,8 +245,8 @@ class AzureBlobDownloader:
 
             try:
                 # This may raise before yielding (initial request). That’s OK; outer backoff will handle it.
-                downloader = self._container.download_blob(
-                    blob_name,
+                downloader = container.download_blob(
+                    relative_blob_name,
                     offset=offset,
                     length=None,  # until EOF
                     max_concurrency=concurrency or self.cfg.max_concurrency,
@@ -223,19 +262,13 @@ class AzureBlobDownloader:
                 except TypeError:
                     it = downloader.chunks()
 
-                last_progress = time.monotonic()
-
                 for ch in it:
                     now = time.monotonic()
-
-                    # Stall watchdog: no progress for too long => restart from current offset
-                    if (now - last_progress) > self.cfg.stall_timeout_s:
-                        raise TimeoutError(f"Stalled >{self.cfg.stall_timeout_s}s at offset={offset}")
-
+                    # A yielded chunk is progress, even after SDK retries or a slow transfer.
+                    # Socket read_timeout bounds inactivity while waiting inside the iterator.
                     if ch:
                         append_chunk(sink, ch)
                         offset += len(ch)
-                        last_progress = now
 
                     # Rate-limited progress logging
                     if (now - last_log) > self.cfg.log_every_s and attempt > 4:
@@ -261,7 +294,7 @@ class AzureBlobDownloader:
                 # But here we can keep a tight local loop to resume quickly.
                 _offset_for_log = offset
                 continue
-        
+
         raise FileNotFoundError(f"Blob not found: {blob_name}") from last_exc
 
     def _download_bytes_until_eof_resumable(self, blob_name, *, _offset_for_log: int = 0, concurrency: int = None) -> bytes:

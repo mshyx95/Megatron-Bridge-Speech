@@ -192,6 +192,10 @@ class _FakeLanguageModel(nn.Module):
     def __init__(self, hidden: int, vocab: int) -> None:
         super().__init__()
         self.head = nn.Parameter(torch.randn(vocab, hidden) * 0.02)
+        self.share_embeddings_and_output_weights = True
+
+    def _scale_logits(self, logits):
+        return logits
 
     def shared_embedding_or_output_weight(self) -> torch.Tensor:
         return self.head

@@ -22,10 +22,12 @@ causal next-token shift here: ``shifted[i] = labels[i + 1]``. Ignored positions 
 """
 
 import logging
+from collections.abc import Callable
 from functools import partial
 from typing import Any, Iterable
 
 import torch
+import torch.distributed as dist
 from megatron.core.transformer import MegatronModule
 
 from megatron.bridge.models.speech_cascades.distillation import (
@@ -55,15 +57,84 @@ def _to_cuda(value: torch.Tensor | None) -> torch.Tensor | None:
     return value
 
 
-def get_alm_batch(data_iterator: Iterable) -> dict[str, Any]:
+def _broadcast_alm_batch(
+    batch: dict[str, torch.Tensor | None], tp_group: dist.ProcessGroup
+) -> dict[str, torch.Tensor | None]:
+    """Broadcast the dynamically shaped speech and teacher tensors within a TP group."""
+    source = dist.get_process_group_ranks(tp_group)[0]
+    is_source = dist.get_rank() == source
+    keys = (
+        "input_ids",
+        "labels",
+        "loss_mask",
+        "audio_input_features",
+        "audio_attention_mask",
+        "audio_embed_sizes",
+        "teacher_input_ids",
+        "teacher_labels",
+        "teacher_attention_mask",
+        "audio_frames",
+    )
+    shapes: list[dict[str, tuple[tuple[int, ...], torch.dtype] | None] | None] = [None]
+    if is_source:
+        source_metadata: dict[str, tuple[tuple[int, ...], torch.dtype] | None] = {}
+        for key in keys:
+            if key not in batch:
+                continue
+            value = batch[key]
+            if value is not None and not isinstance(value, torch.Tensor):
+                raise TypeError(f"Speech batch field {key!r} must be a tensor or None")
+            source_metadata[key] = (tuple(value.shape), value.dtype) if value is not None else None
+        shapes[0] = source_metadata
+    dist.broadcast_object_list(shapes, src=source, group=tp_group)
+    metadata = shapes[0]
+    if metadata is None:
+        raise RuntimeError("TP source did not broadcast speech batch metadata")
+    device = (
+        torch.device("cuda", torch.cuda.current_device())
+        if dist.get_backend(tp_group) == "nccl"
+        else torch.device("cpu")
+    )
+    result: dict[str, torch.Tensor | None] = {}
+    for key in keys:
+        if key not in metadata:
+            continue
+        spec = metadata[key]
+        if spec is None:
+            result[key] = None
+            continue
+        shape, dtype = spec
+        value = batch.get(key) if is_source else None
+        tensor = (
+            value.to(device).contiguous()
+            if isinstance(value, torch.Tensor)
+            else torch.empty(shape, dtype=dtype, device=device)
+        )
+        dist.broadcast(tensor, src=source, group=tp_group)
+        result[key] = tensor
+    return result
+
+
+def get_alm_batch(data_iterator: Iterable, *, tp_group: dist.ProcessGroup | None = None) -> dict[str, Any]:
     """Pull one ALM batch off the iterator and move tensors to the current device.
 
-    Applies the causal next-token shift to the (unshifted) collator labels and derives ``loss_mask``.
+    Applies the causal next-token shift and synchronizes dynamic batches across TP ranks.
     """
+    if tp_group is not None and dist.get_world_size(tp_group) > 1:
+        source = dist.get_process_group_ranks(tp_group)[0]
+        if dist.get_rank() != source:
+            out = _broadcast_alm_batch({}, tp_group)
+            add_audio_seconds(out.pop("audio_frames"))
+            return out
+    else:
+        tp_group = None
+
     batch = next(data_iterator)
 
     input_ids = _to_cuda(batch["input_ids"])
     labels = _to_cuda(batch["labels"])
+    if not isinstance(input_ids, torch.Tensor) or not isinstance(labels, torch.Tensor):
+        raise TypeError("Speech batches require input_ids and labels tensors")
 
     # Causal shift: score logits[i] against labels[i + 1]; last position is ignored.
     shifted = labels.new_full(labels.shape, IGNORE_INDEX)
@@ -72,7 +143,7 @@ def get_alm_batch(data_iterator: Iterable) -> dict[str, Any]:
     model_labels = shifted.clamp_min(0)
 
     # Track audio duration consumed (audio_frames * 10ms), matching phyagi's BatchTracker.
-    add_audio_seconds(batch.get("audio_frames"))
+    audio_frames = batch.get("audio_frames")
 
     audio_features = batch.get("inputs_embeds")
     audio_features = _to_cuda(audio_features) if isinstance(audio_features, torch.Tensor) else None
@@ -91,6 +162,11 @@ def get_alm_batch(data_iterator: Iterable) -> dict[str, Any]:
         "audio_embed_sizes": _to_cuda(batch.get("audio_embed_sizes")),
     }
     _add_teacher_tensors(batch, out)
+    if tp_group is not None:
+        out["audio_frames"] = _to_cuda(audio_frames)
+        out = _broadcast_alm_batch(out, tp_group)
+        audio_frames = out.pop("audio_frames")
+    add_audio_seconds(audio_frames)
     return out
 
 
@@ -132,7 +208,18 @@ def forward_step(
     timers = state.timers
 
     timers("batch-generator", log_level=2).start()
-    batch = get_alm_batch(data_iterator)
+    tp_group = None
+    if (
+        dist.is_initialized()
+        and dist.get_world_size() > 1
+        and getattr(getattr(state.cfg, "model", None), "tensor_model_parallel_size", 1) > 1
+    ):
+        inner = _unwrap_model(model)
+        pg_collection = getattr(inner.language_model, "pg_collection", None)
+        tp_group = getattr(pg_collection, "tp", None)
+        if tp_group is None:
+            raise RuntimeError("Speech TP training requires the language model's TP process group for batch broadcast")
+    batch = get_alm_batch(data_iterator, tp_group=tp_group)
     timers("batch-generator").stop()
 
     loss_mask = batch.pop("loss_mask")
@@ -185,16 +272,35 @@ def _unwrap_model(model: MegatronModule) -> MegatronModule:
     return inner
 
 
-def _make_logits_fn(inner: MegatronModule):
-    """Build a ``[N, H] -> [N, V]`` logits function from the frozen tied output head."""
+def _make_logits_fn(inner: MegatronModule) -> Callable[[torch.Tensor], torch.Tensor]:
+    """Build full-vocabulary logits using the same tied or untied head as the LM forward."""
     gpt = inner.language_model
-    weight = gpt.shared_embedding_or_output_weight()
+    weight = gpt.shared_embedding_or_output_weight() if gpt.share_embeddings_and_output_weights else None
+
+    if getattr(inner.config, "tensor_model_parallel_size", 1) > 1:
+        from megatron.core.tensor_parallel import (
+            copy_to_tensor_model_parallel_region,
+            gather_from_tensor_model_parallel_region,
+        )
+
+        if weight is None:
+            weight = gpt.output_layer.weight
+        tp_group = gpt.pg_collection.tp
+
+        def parallel_logits_fn(hidden_states: torch.Tensor) -> torch.Tensor:
+            # Response selection has already gathered SP tokens; the head must not gather them again.
+            replicated_hidden = copy_to_tensor_model_parallel_region(hidden_states, group=tp_group)
+            local_logits = torch.nn.functional.linear(replicated_hidden, weight, gpt.output_layer.bias)
+            logits = gather_from_tensor_model_parallel_region(local_logits, group=tp_group)
+            return gpt._scale_logits(logits)
+
+        return parallel_logits_fn
 
     def logits_fn(hidden_states: torch.Tensor) -> torch.Tensor:
         # The output layer expects sbhd ``[S, B, H]``; treat the N response tokens as a length-N,
         # batch-1 sequence, then drop the batch axis.
         logits, _ = gpt.output_layer(hidden_states.unsqueeze(1), weight=weight)
-        return logits.squeeze(1)
+        return gpt._scale_logits(logits).squeeze(1)
 
     return logits_fn
 

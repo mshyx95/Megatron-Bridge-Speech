@@ -89,6 +89,8 @@ lines-after-imports = 2
 force-single-line = false
 
 [lint.per-file-ignores]
+# Migrated reference evaluation code retains its upstream documentation conventions.
+"examples/models/speech_cascades/speech_eval/**" = ["D101", "D103"]
 # Ignore import violations in __init__ files
 "__init__.py" = ["F401", "F403"]
 # Ignore docstring requirements in test files

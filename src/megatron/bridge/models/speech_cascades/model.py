@@ -50,7 +50,9 @@ class SpeechCascadesModel(MegatronModule):
         self.post_process = post_process
         self.audio_token_id = audio_token_id
 
-        # Reuse the tested GPT builder for the Qwen3.5 (GDN hybrid) language model.
+        if config.sequence_parallel:
+            config.scatter_embedding_sequence_parallel = False
+
         self.language_model = self._build_language_model(config, pre_process, post_process, vp_stage)
 
         self.audio_model: CascadesAudioEmbedding | None = None
@@ -61,6 +63,7 @@ class SpeechCascadesModel(MegatronModule):
                 projection_cls=audio_projection_cls,
                 compression_rate=audio_compression_rate,
                 downsample_rate=audio_downsample_rate,
+                retain_attention_maps=getattr(config, "retain_audio_attention_maps", True),
             )
 
         self.share_embeddings_and_output_weights = self.language_model.share_embeddings_and_output_weights
@@ -79,8 +82,32 @@ class SpeechCascadesModel(MegatronModule):
         if mtp_num_depth_layers > 0:
             self.mtp = self._build_mtp(config, mtp_num_depth_layers, vp_stage)
 
-    def _build_language_model(self, config, pre_process, post_process, vp_stage):
-        return GPTModelProvider.provide(config, pre_process=pre_process, post_process=post_process, vp_stage=vp_stage)
+    def _build_language_model(
+        self,
+        config: GPTModelProvider,
+        pre_process: bool,
+        post_process: bool,
+        vp_stage: int | None,
+    ) -> torch.nn.Module:
+        """Build the language backbone; model-family subclasses may override this hook."""
+        return GPTModelProvider.provide(
+            config,
+            pre_process=pre_process,
+            post_process=post_process,
+            vp_stage=vp_stage,
+        )
+
+    def _language_model_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor | None:
+        """Return token IDs needed by the language backbone in addition to decoder embeddings."""
+        return None
+
+    def _language_model_handles_sequence_parallel(self) -> bool:
+        """Whether the backbone pads and scatters externally supplied embeddings itself."""
+        return False
+
+    def _text_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Embed text token IDs before audio features are scattered into the sequence."""
+        return self.language_model.embedding(input_ids=input_ids, position_ids=None)
 
     def _build_mtp(self, config: GPTModelProvider, num_depth_layers: int, vp_stage: int | None) -> SpeechCascadesMTP:
         """Build the MTP depth heads from the language-model decoder's first-layer spec."""
@@ -170,7 +197,7 @@ class SpeechCascadesModel(MegatronModule):
         # embedding lookup, then scatter audio features into those positions.
         audio_mask = input_ids < 0
         safe_input_ids = input_ids.clamp_min(0)
-        combined = self.language_model.embedding(input_ids=safe_input_ids, position_ids=None).clone()
+        combined = self._text_embeddings(safe_input_ids).clone()
         combined = combined.transpose(0, 1).contiguous()
         combined[audio_mask] = audio_features.to(combined.dtype)
         return combined.transpose(0, 1).contiguous()
@@ -189,6 +216,27 @@ class SpeechCascadesModel(MegatronModule):
         return_hidden_states: bool = False,
         **kwargs,
     ) -> torch.Tensor:
+        original_length = input_ids.shape[1]
+        padding = 0
+        if self.config.sequence_parallel and self.mtp is not None:
+            raise NotImplementedError("Sequence parallelism for speech MTP is not supported")
+        scatter_inputs = self.config.sequence_parallel and not self._language_model_handles_sequence_parallel()
+        if scatter_inputs:
+            padding = (-original_length) % self.config.tensor_model_parallel_size
+            if padding:
+                if attention_mask is not None or kwargs.get("padding_mask") is not None:
+                    raise ValueError("Sequence-parallel padding with explicit attention masks is not supported")
+                input_ids = torch.nn.functional.pad(input_ids, (0, padding), value=0)
+                padding_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+                padding_mask[:, original_length:] = True
+                kwargs["padding_mask"] = padding_mask
+                if labels is not None:
+                    labels = torch.nn.functional.pad(labels, (0, padding), value=0)
+                if loss_mask is not None:
+                    loss_mask = torch.nn.functional.pad(loss_mask, (0, padding), value=0)
+                if position_ids is not None:
+                    extra_positions = position_ids[:, -1:] + torch.arange(1, padding + 1, device=position_ids.device)
+                    position_ids = torch.cat((position_ids, extra_positions), dim=1)
         decoder_input = None
         if self.pre_process:
             if audio_input_features is not None:
@@ -196,7 +244,23 @@ class SpeechCascadesModel(MegatronModule):
                     input_ids, audio_input_features, audio_attention_mask, audio_embed_sizes
                 )
             else:
-                decoder_input = self.language_model.embedding(input_ids=input_ids.clamp_min(0), position_ids=None)
+                decoder_input = self._text_embeddings(input_ids.clamp_min(0))
+
+            if scatter_inputs:
+                from megatron.core.tensor_parallel import scatter_to_sequence_parallel_region
+
+                decoder_input = scatter_to_sequence_parallel_region(
+                    decoder_input, group=self.language_model.pg_collection.tp
+                )
+                if kwargs.get("padding_mask") is not None:
+                    kwargs["padding_mask"] = (
+                        scatter_to_sequence_parallel_region(
+                            kwargs["padding_mask"].transpose(0, 1).contiguous(),
+                            group=self.language_model.pg_collection.tp,
+                        )
+                        .transpose(0, 1)
+                        .contiguous()
+                    )
 
         if position_ids is None:
             # decoder_input is precomputed, so the LM cannot infer positions from input_ids.
@@ -211,8 +275,8 @@ class SpeechCascadesModel(MegatronModule):
         # branch below.
         capture_hidden = return_hidden_states or self.mtp is not None
         if not capture_hidden or labels is None:
-            return self.language_model(
-                input_ids=None,
+            output = self.language_model(
+                input_ids=self._language_model_input_ids(input_ids),
                 position_ids=position_ids,
                 attention_mask=attention_mask,
                 decoder_input=decoder_input,
@@ -220,19 +284,27 @@ class SpeechCascadesModel(MegatronModule):
                 loss_mask=loss_mask,
                 **kwargs,
             )
+            if padding:
+                return output[:, :original_length]
+            return output
 
         # Capture path: stash the main decoder hidden states (for the KD response selection and/or
         # the MTP depth heads) while the capture hook reproduces the standard output-layer loss so
         # the returned CE output is unchanged.
         holder: dict[str, torch.Tensor] = {}
         output = self.language_model(
-            input_ids=None,
+            input_ids=self._language_model_input_ids(input_ids),
             position_ids=position_ids,
             attention_mask=attention_mask,
             decoder_input=decoder_input,
             labels=labels,
             loss_mask=loss_mask,
-            output_processor=self._capture_hidden_states(holder),
+            output_processor=self._capture_hidden_states(
+                holder,
+                sequence_parallel=self.config.sequence_parallel,
+                tp_group=self.language_model.pg_collection.tp if self.config.sequence_parallel else None,
+                sequence_length=original_length,
+            ),
             **kwargs,
         )
         full_hidden_states = holder.get("hidden_states")
@@ -267,21 +339,54 @@ class SpeechCascadesModel(MegatronModule):
         Returns:
             Decoder hidden states ``[B, S, H]`` (bshd).
         """
+        original_length = input_ids.shape[1]
+        scatter_inputs = self.config.sequence_parallel and not self._language_model_handles_sequence_parallel()
+        padding_mask = None
+        if scatter_inputs:
+            padding = (-original_length) % self.config.tensor_model_parallel_size
+            if padding:
+                if attention_mask is not None:
+                    raise ValueError("Sequence-parallel padding with explicit attention masks is not supported")
+                input_ids = torch.nn.functional.pad(input_ids, (0, padding), value=0)
+                padding_mask = torch.zeros_like(input_ids, dtype=torch.bool)
+                padding_mask[:, original_length:] = True
+
         decoder_input = None
         if self.pre_process:
-            decoder_input = self.language_model.embedding(input_ids=input_ids.clamp_min(0), position_ids=None)
+            decoder_input = self._text_embeddings(input_ids.clamp_min(0))
+            if scatter_inputs:
+                from megatron.core.tensor_parallel import scatter_to_sequence_parallel_region
+
+                decoder_input = scatter_to_sequence_parallel_region(
+                    decoder_input, group=self.language_model.pg_collection.tp
+                )
+                if padding_mask is not None:
+                    padding_mask = (
+                        scatter_to_sequence_parallel_region(
+                            padding_mask.transpose(0, 1).contiguous(),
+                            group=self.language_model.pg_collection.tp,
+                        )
+                        .transpose(0, 1)
+                        .contiguous()
+                    )
 
         sequence = torch.arange(input_ids.shape[1], device=input_ids.device)
         position_ids = sequence.unsqueeze(0).expand(input_ids.shape[0], -1)
 
         holder: dict[str, torch.Tensor] = {}
         self.language_model(
-            input_ids=None,
+            input_ids=self._language_model_input_ids(input_ids),
             position_ids=position_ids,
             attention_mask=attention_mask,
             decoder_input=decoder_input,
             labels=None,
-            output_processor=self._capture_hidden_states_only(holder),
+            output_processor=self._capture_hidden_states_only(
+                holder,
+                sequence_parallel=self.config.sequence_parallel,
+                tp_group=self.language_model.pg_collection.tp if self.config.sequence_parallel else None,
+                sequence_length=original_length,
+            ),
+            **({"padding_mask": padding_mask} if padding_mask is not None else {}),
         )
         return holder["hidden_states"].transpose(0, 1).contiguous()
 
@@ -293,7 +398,13 @@ class SpeechCascadesModel(MegatronModule):
         return lambda seq_len: rotary_pos_emb(seq_len)
 
     @staticmethod
-    def _capture_hidden_states(holder: dict[str, torch.Tensor]):
+    def _capture_hidden_states(
+        holder: dict[str, torch.Tensor],
+        *,
+        sequence_parallel: bool = False,
+        tp_group: torch.distributed.ProcessGroup | None = None,
+        sequence_length: int | None = None,
+    ):
         """Output-processor hook: stash the decoder hidden states and reproduce the standard output."""
 
         def _process(
@@ -307,17 +418,30 @@ class SpeechCascadesModel(MegatronModule):
             scale_logits,
             **_,
         ):
-            holder["hidden_states"] = hidden_states
+            SpeechCascadesModel._capture_hidden_states_only(
+                holder,
+                sequence_parallel=sequence_parallel,
+                tp_group=tp_group,
+                sequence_length=sequence_length,
+            )(hidden_states=hidden_states)
             logits, _ = output_layer(hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output)
             logits = scale_logits(logits)
             if labels is None:
-                return logits.transpose(0, 1).contiguous()
-            return compute_language_model_loss(labels, logits)
+                output = logits.transpose(0, 1).contiguous()
+            else:
+                output = compute_language_model_loss(labels, logits)
+            return output[:, :sequence_length] if sequence_length is not None else output
 
         return _process
 
     @staticmethod
-    def _capture_hidden_states_only(holder: dict[str, torch.Tensor]):
+    def _capture_hidden_states_only(
+        holder: dict[str, torch.Tensor],
+        *,
+        sequence_parallel: bool = False,
+        tp_group: torch.distributed.ProcessGroup | None = None,
+        sequence_length: int | None = None,
+    ):
         """Output-processor hook that captures decoder hidden states without materializing logits.
 
         Used by the text-only teacher forward, which only needs the hidden states; skipping the
@@ -325,6 +449,15 @@ class SpeechCascadesModel(MegatronModule):
         """
 
         def _process(*, hidden_states, **_):
+            if sequence_parallel:
+                from megatron.core.tensor_parallel import gather_from_sequence_parallel_region
+
+                # The KD vocabulary projection already sums dgrad over TP. Do not sum it twice.
+                hidden_states = gather_from_sequence_parallel_region(
+                    hidden_states, tensor_parallel_output_grad=False, group=tp_group
+                )
+            if sequence_length is not None:
+                hidden_states = hidden_states[:sequence_length]
             holder["hidden_states"] = hidden_states
             return hidden_states
 

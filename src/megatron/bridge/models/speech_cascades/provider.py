@@ -40,6 +40,7 @@ class SpeechCascadesModelProvider(GPTModelProvider):
     audio_projection_cls: str = "mlp"
     audio_compression_rate: int = 8
     audio_downsample_rate: int = 1
+    retain_audio_attention_maps: bool = True
     audio_token_id: int = 151646
 
     freeze_language_model: bool = False
@@ -63,7 +64,6 @@ class SpeechCascadesModelProvider(GPTModelProvider):
     mtp_loss_depth_weights: list[float] | None = None
     mtp_distillation_weight: float = 0.0
     mtp_init_extra_layers_from_first: bool = False
-
     # --- Qwen3.5 language-model defaults (GDN hybrid) ---
     normalization: str = "RMSNorm"
     gated_linear_unit: bool = True

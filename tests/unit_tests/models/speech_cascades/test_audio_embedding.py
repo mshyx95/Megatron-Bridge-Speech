@@ -14,6 +14,7 @@
 
 """Structure and determinism test for the Cascades audio embedding (encoder + projection)."""
 
+import numpy as np
 import pytest
 
 
@@ -102,3 +103,42 @@ def test_audio_embedding_matches_signature():
 def test_unsupported_projection_raises():
     with pytest.raises(NotImplementedError):
         CascadesAudioEmbedding(_ENCODER_CONFIG, hidden_size=_HIDDEN_SIZE, projection_cls="qformer")
+
+
+@pytest.mark.parametrize("freeze_encoder", [False, True])
+def test_releasing_attention_maps_preserves_outputs_and_gradients(freeze_encoder):
+    from megatron.bridge.models.speech_cascades.encoder.audio_blocks.cascade_encoder.utils import MultiHeadedAttention
+
+    torch.manual_seed(3)
+    retained = CascadesAudioEmbedding(_ENCODER_CONFIG, hidden_size=32).train()
+    released = CascadesAudioEmbedding(_ENCODER_CONFIG, hidden_size=32, retain_attention_maps=False).train()
+    released.load_state_dict(retained.state_dict())
+    inputs = torch.randn(2, 128, 80)
+    masks = torch.ones(2, 128, dtype=torch.long)
+    masks[1, 96:] = 0
+    for module in (retained, released):
+        module.encoder.requires_grad_(not freeze_encoder)
+    for length in (128, 96, 112):
+        outputs = []
+        for module in (retained, released):
+            module.zero_grad(set_to_none=True)
+            torch.manual_seed(7)
+            np.random.seed(7)
+            output = module(inputs[:, :length].clone(), masks[:, :length].clone())
+            output.square().mean().backward()
+            outputs.append(output.detach())
+        torch.testing.assert_close(outputs[0], outputs[1], rtol=0, atol=0)
+        for name, parameter in retained.named_parameters():
+            other = dict(released.named_parameters())[name]
+            assert (parameter.grad is None) == (other.grad is None), name
+            if parameter.grad is not None:
+                torch.testing.assert_close(parameter.grad, other.grad, rtol=0, atol=0, msg=name)
+        retained_maps = [
+            module.attn for module in retained.encoder.modules() if isinstance(module, MultiHeadedAttention)
+        ]
+        released_maps = [
+            module.attn for module in released.encoder.modules() if isinstance(module, MultiHeadedAttention)
+        ]
+        assert len(retained_maps) == len(released_maps) == _ENCODER_CONFIG["num_blocks"]
+        assert all(isinstance(value, torch.Tensor) for value in retained_maps)
+        assert all(value is None for value in released_maps)

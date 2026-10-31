@@ -29,8 +29,8 @@ from megatron.bridge.models.conversion.utils import moe_experts_stored_packed
 from megatron.bridge.models.qwen.qwen35_bridge import (
     Qwen35Bridge,
     Qwen35MoEBridge,
-    _apply_qwen35_common_config,
-    _apply_qwen35_moe_config,
+    _qwen35_common_config_kwargs,
+    _qwen35_moe_config_kwargs,
 )
 from megatron.bridge.models.speech_cascades.model import SpeechCascadesModel
 from megatron.bridge.models.speech_cascades.provider import SpeechCascadesModelProvider
@@ -47,9 +47,9 @@ def _dtype_from_config(config):
     return value if isinstance(value, torch.dtype) else torch.bfloat16
 
 
-
-
-@MegatronModelBridge.register_bridge(source="Qwen3_5SpeechCascadesForConditionalGeneration", target=SpeechCascadesModel)
+@MegatronModelBridge.register_bridge(
+    source="Qwen3_5SpeechCascadesForConditionalGeneration", target=SpeechCascadesModel
+)
 class SpeechCascadesBridge(MegatronModelBridge):
     """Bridge between the converted HF speech checkpoint and the native ``SpeechCascadesModel``."""
 
@@ -65,6 +65,9 @@ class SpeechCascadesBridge(MegatronModelBridge):
         rope_parameters = getattr(config, "rope_parameters", None) or {}
 
         model_dtype = _dtype_from_config(config)
+        language_model_kwargs = _qwen35_common_config_kwargs(config)
+        if getattr(config, "num_experts", None):
+            language_model_kwargs.update(_qwen35_moe_config_kwargs(config))
         provider = SpeechCascadesModelProvider(
             num_layers=config.num_hidden_layers,
             hidden_size=config.hidden_size,
@@ -86,12 +89,10 @@ class SpeechCascadesBridge(MegatronModelBridge):
             audio_projection_cls=embd_layer.get("projection_cls", "mlp"),
             audio_compression_rate=embd_layer.get("compression_rate", 1),
             audio_token_id=getattr(config, "audio_token_id", None) or _DEFAULT_AUDIO_TOKEN_ID,
+            **language_model_kwargs,
         )
-        # Fill in the Qwen3.5/Qwen3.6 GDN hybrid language-model settings from the real config.
-        if getattr(config, "num_experts", None):
-            _apply_qwen35_moe_config(provider, config)
-        else:
-            _apply_qwen35_common_config(provider, config)
+        if provider.mtp_num_layers:
+            provider.mtp_loss_scaling_factor = 0.1
         provider.position_embedding_type = "rope"
         provider.autocast_dtype = model_dtype
         provider.hetereogenous_dist_checkpoint = True
@@ -107,9 +108,7 @@ class SpeechCascadesBridge(MegatronModelBridge):
                 hf_prefix="model.", megatron_prefix="language_model.", experts_packed=experts_packed
             )
         else:
-            mapping_list = Qwen35Bridge._get_dense_lm_mappings(
-                hf_prefix="model.", megatron_prefix="language_model."
-            )
+            mapping_list = Qwen35Bridge._get_dense_lm_mappings(hf_prefix="model.", megatron_prefix="language_model.")
         mapping_list.extend(
             [
                 ReplicatedMapping(
