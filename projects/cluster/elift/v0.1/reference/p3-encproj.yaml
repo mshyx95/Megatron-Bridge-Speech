@@ -1,0 +1,8 @@
+output_dir: ${oc.env:SPEECH_OUTPUT_ROOT}
+model:
+  customized_params_conf:
+    FREEZE_PATTERNS:
+    - model.layers
+    - model.norm
+    - lm_head
+    - model.embed_tokens.weight

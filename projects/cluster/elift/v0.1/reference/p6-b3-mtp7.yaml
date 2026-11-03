@@ -1,0 +1,48 @@
+description: 'P6: ORIGINAL trained B3 Qwen3.8-27B step4000 plus ExpandedMTP7. Load native MTP layer0 and copy-initialize
+  independent layers1-6, then restore the full trained B3 checkpoint. Never initialize from P5 or the excluded one-layer
+  jobs. Preserve P5 data, main KLD, MTP auxiliary CE weight0.1, frozen backbone/encoder, trainable MLP/MTP, LR4e-5, batch512
+  and4000 additional updates. Seven equal normalized depth weights are an explicit implementation default; P5 used four unequal
+  weights. Disable encoder/normalization reinitialization and the stale fused-norm path.'
+output_dir: ${oc.env:SPEECH_OUTPUT_ROOT}
+audio_tower:
+  init_model:
+    pretrained_speech_encoder_path: null
+    mean_file: null
+    invstd_file: null
+model:
+  pretrained_model_name_or_path: ${oc.env:SPEECH_INIT_CHECKPOINT}
+  mtp_pretrained_model_name_or_path: ${oc.env:SPEECH_NATIVE_MTP_ROOT}
+  model_type: qwen3_5_mtp_audio_instruct
+  audio_processor: ${audio_tower}
+  mtp_num_hidden_layers: 7
+  mtp_loss_depth_weights:
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  - 1.0
+  mtp_init_extra_layers_from_first: true
+  mtp_loss_weight: 0.1
+  mtp_distillation_weight: 0.0
+  use_fused_kernels: false
+  knowledge_distillation: true
+  customized_params_conf:
+    FREEZE_PATTERNS:
+    - model.layers
+    - model.norm
+    - lm_head
+    - model.embed_tokens.weight
+    - model.embed_tokens_extend.encoder
+training_args:
+  ds_config:
+    optimizer:
+      params:
+        lr: 4.0e-05
+    scheduler:
+      params:
+        warmup_max_lr: 4.0e-05
+    train_micro_batch_size_per_gpu: 1
+    train_batch_size: 512
+  max_steps: 4000
