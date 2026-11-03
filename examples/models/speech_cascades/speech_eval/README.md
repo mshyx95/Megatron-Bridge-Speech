@@ -32,6 +32,12 @@ VoiceBench only merges predictions/audits; its scoring stays local. Worker error
 propagate to peers, and no global completion summary is written on failure.
 Use a fresh output directory; stale or partial directories are not resumed.
 
+JSON publication uses a unique temporary file beside the destination, followed
+by an atomic rename. Concurrent MPI workers and ExpandedMTP4 engines cannot
+remove each other's in-flight audit files. The shared MTP runtime audit is a
+last-writer snapshot, not aggregated acceptance evidence; speculative acceptance
+must come from each server's live metrics.
+
 ## Migration Scope
 
 - Reference CLI, prompts, HF/AA/JSONL/TSV readers and long-form segmentation.

@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +33,96 @@ def isolated_imports(monkeypatch):
     monkeypatch.syspath_prepend(str(ROOT / "src/megatron/bridge/models/speech_cascades"))
     monkeypatch.syspath_prepend(str(ENTRY))
     monkeypatch.setattr(sys, "meta_path", [BlockExternal(), *sys.meta_path])
+
+
+@pytest.mark.unit
+def test_atomic_json_concurrent_publish(tmp_path: Path) -> None:
+    code = """
+import json, sys, time
+from pathlib import Path
+from speech_eval.mpi import atomic_json
+
+root = Path(sys.argv[1])
+worker = int(sys.argv[2])
+replace = Path.replace
+iteration = 0
+
+def synchronized_replace(source, target):
+    (root / f"{iteration}-{worker}.ready").touch()
+    deadline = time.monotonic() + 15
+    while len(list(root.glob(f"{iteration}-*.ready"))) != 8:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Concurrent publishers did not all reach rename")
+        time.sleep(0.005)
+    return replace(source, target)
+
+Path.replace = synchronized_replace
+for iteration in range(10):
+    atomic_json(root / "audit.json", {"worker": worker, "iteration": iteration, "values": [worker] * 1000})
+"""
+    environment = {**os.environ, "PYTHONPATH": str(ENTRY)}
+    workers = [
+        subprocess.Popen(
+            [sys.executable, "-c", code, str(tmp_path), str(rank)],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for rank in range(8)
+    ]
+    snapshots = []
+    try:
+        deadline = time.monotonic() + 30
+        while any(worker.poll() is None for worker in workers):
+            assert time.monotonic() < deadline, "Concurrent audit publication timed out"
+            try:
+                snapshots.append(json.loads((tmp_path / "audit.json").read_text()))
+            except FileNotFoundError:
+                pass
+            time.sleep(0.001)
+        failures = []
+        for worker in workers:
+            stdout, stderr = worker.communicate(timeout=5)
+            if worker.returncode != 0:
+                failures.append(stdout + stderr)
+        assert not failures, "\n".join(failures)
+    finally:
+        for worker in workers:
+            if worker.poll() is None:
+                worker.terminate()
+                worker.wait(timeout=5)
+    snapshots.append(json.loads((tmp_path / "audit.json").read_text()))
+    assert snapshots[-1]["iteration"] == 9
+    for snapshot in snapshots:
+        assert 0 <= snapshot["worker"] < 8
+        assert 0 <= snapshot["iteration"] < 10
+        assert snapshot["values"] == [snapshot["worker"]] * 1000
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", ["serialization", "publication"])
+def test_atomic_json_failure_preserves_previous_artifact_and_cleans_temp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from speech_eval.mpi import atomic_json
+
+    output = tmp_path / "audit.json"
+    atomic_json(output, {"previous": True})
+    if failure == "serialization":
+        with pytest.raises(TypeError):
+            atomic_json(output, {"invalid": object()})
+    else:
+
+        def fail_replace(source: Path, destination: Path) -> None:
+            raise OSError("Publication failed")
+
+        monkeypatch.setattr(Path, "replace", fail_replace)
+        with pytest.raises(OSError, match="Publication failed"):
+            atomic_json(output, {"next": True})
+    assert json.loads(output.read_text()) == {"previous": True}
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.unit

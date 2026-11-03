@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import Counter
@@ -140,11 +141,18 @@ def merge_records(shards: list[dict], world_size: int) -> list[dict]:
 
 
 def atomic_json(path: Path, value: object) -> None:
-    """Publish a JSON artifact only after it has been fully written."""
+    """Publish complete JSON atomically, including with concurrent writers."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
-    temporary.replace(path)
+    stream = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+    )
+    temporary = Path(stream.name)
+    try:
+        with stream:
+            stream.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def file_digest(path: Path) -> str:

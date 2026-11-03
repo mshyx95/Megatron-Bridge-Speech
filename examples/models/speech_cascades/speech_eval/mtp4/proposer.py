@@ -14,6 +14,7 @@ from safetensors import safe_open
 from vllm.logger import init_logger
 from vllm.v1.spec_decode.eagle import EagleProposer
 
+from speech_eval.mpi import atomic_json
 from speech_eval.mtp4.mtp_model import ExpandedMTP4
 
 
@@ -157,19 +158,17 @@ class ExpandedMTP4Proposer(EagleProposer):
         )
         self.proposal_count += 1
         audit = Path("/tmp/expanded_mtp4_runtime.json")
-        audit.with_suffix(".tmp").write_text(
-            json.dumps(
-                {
-                    "proposal_batches": self.proposal_count,
-                    "runtime_depth_calls": self.runtime_depth_calls,
-                    "physical_layers": 4,
-                    "loaded_mtp_tensors": 48,
-                    "speculative_tokens": 4,
-                    "target_backbones": 1,
-                    "speech_encoders": 1,
-                    "cache_mode": "depth_local_rollback_safe",
-                }
-            )
+        atomic_json(
+            audit,
+            {
+                "proposal_batches": self.proposal_count,
+                "runtime_depth_calls": self.runtime_depth_calls,
+                "physical_layers": 4,
+                "loaded_mtp_tensors": 48,
+                "speculative_tokens": 4,
+                "target_backbones": 1,
+                "speech_encoders": 1,
+                "cache_mode": "depth_local_rollback_safe",
+            },
         )
-        audit.with_suffix(".tmp").replace(audit)
         return torch.stack(drafts)[:, :num_speculative_tokens]
