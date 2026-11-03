@@ -1,0 +1,44 @@
+description: Continue the completed P4 step4000 checkpoint on the full original dataset plus paired 2k-hour Hindi ASR, no-think
+  and continuation dataspecs. Restore the complete trained P4 encoder, MLP, backbone and all four MTP layers; do not reinitialize
+  MTP from the native Qwen3.5 checkpoint. Freeze backbone and encoder and continue training the learned MLP projector and
+  ExpandedMTP4 without LoRA. Start a fresh optimizer and scheduler in a new output directory for 4000 additional steps at
+  LR 1.0e-5, microbatch 1 and global batch 512.
+output_dir: ${oc.env:SPEECH_OUTPUT_ROOT}
+audio_tower:
+  init_model:
+    pretrained_speech_encoder_path: null
+    mean_file: null
+    invstd_file: null
+model:
+  pretrained_model_name_or_path: ${oc.env:SPEECH_INIT_CHECKPOINT}
+  model_type: qwen3_5_mtp_audio_instruct
+  audio_processor: ${audio_tower}
+  mtp_num_hidden_layers: 4
+  mtp_loss_depth_weights:
+  - 0.3
+  - 0.25
+  - 0.25
+  - 0.2
+  mtp_init_extra_layers_from_first: false
+  mtp_loss_weight: 0.1
+  mtp_distillation_weight: 0.0
+  use_fused_kernels: false
+  knowledge_distillation: true
+  customized_params_conf:
+    FREEZE_PATTERNS:
+    - model.layers
+    - model.norm
+    - lm_head
+    - model.embed_tokens.weight
+    - model.embed_tokens_extend.encoder
+training_args:
+  ds_config:
+    optimizer:
+      params:
+        lr: 1.0e-05
+    scheduler:
+      params:
+        warmup_max_lr: 1.0e-05
+    train_micro_batch_size_per_gpu: 1
+    train_batch_size: 512
+  max_steps: 4000

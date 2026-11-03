@@ -119,6 +119,12 @@ def main() -> None:
     parser.add_argument("--load-hf-weights", action="store_true", help="Cold-start weights from --hf-path directly.")
     parser.add_argument("--freeze-language-model", action="store_true", help="Freeze the LLM (stage-1).")
     parser.add_argument("--freeze-audio-model", action="store_true", help="Freeze the audio encoder.")
+    parser.add_argument(
+        "--freeze-audio-encoder",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override encoder-only freezing without freezing the projector.",
+    )
     parser.add_argument("--activation-recompute", action="store_true", help="Full activation recompute.")
     parser.add_argument(
         "--attention-backend",
@@ -168,11 +174,19 @@ def main() -> None:
         help="Per-depth MTP loss weights.",
     )
     parser.add_argument("--mtp-distillation-weight", type=float, default=0.75, help="MTP per-depth KL vs CE mix.")
+    parser.add_argument(
+        "--mtp-init-extra-layers-from-first",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override decoder-copy MTP initialization; disable for prepared native-MTP checkpoints.",
+    )
     args = parser.parse_args()
 
     _apply_train_config_yaml(args, parser)
     if args.exit_interval is not None and args.exit_interval <= 0:
         parser.error("--exit-interval must be positive")
+    if args.mtp_init_extra_layers_from_first is not None and not args.s2_kd:
+        parser.error("--mtp-init-extra-layers-from-first requires --s2-kd")
 
     peft = None
     if args.lora_rank is not None:
@@ -202,6 +216,8 @@ def main() -> None:
             kd_kwargs["lr"] = args.lr
         if args.lr_warmup_iters is not None:
             kd_kwargs["lr_warmup_iters"] = args.lr_warmup_iters
+        if args.mtp_init_extra_layers_from_first is not None:
+            kd_kwargs["mtp_init_extra_layers_from_first"] = args.mtp_init_extra_layers_from_first
         cfg = speech_cascades_s2_kd_config(
             hf_path=args.hf_path,
             streaming_config_yaml=args.streaming_config_yaml,
@@ -274,6 +290,8 @@ def main() -> None:
         )
     if args.attention_backend is not None:
         cfg.model.attention_backend = args.attention_backend
+    if args.freeze_audio_encoder is not None:
+        cfg.model.freeze_audio_encoder = args.freeze_audio_encoder
     if args.overlap_grad_reduce is not None:
         cfg.ddp.overlap_grad_reduce = args.overlap_grad_reduce
     if args.exit_interval is not None:
