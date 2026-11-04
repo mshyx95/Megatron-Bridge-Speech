@@ -102,6 +102,35 @@ configuration checks do not establish optimizer-state or numerical parity.
 
 The data configs require the `/datablob1` mount used by the original training jobs.
 
+## Launching a stage (native Megatron-Bridge, not DeepSpeed)
+
+The original jobs used DeepSpeed `ds_train_advanced.py`. Use the native launcher instead:
+[launch_elift_stage.py](../../../../examples/models/speech_cascades/launch_elift_stage.py) reads the stage's
+training profile and data snapshot from [catalog.yaml](catalog.yaml), and the clean LLM, frozen encoder and
+continuation checkpoints from [launch.yaml](launch.yaml). Rank 0 builds the prepared speech HF (clean LLM + frozen
+encoder + random MLP) under `<output_root>/<stage>/initial_hf`; every rank then runs `finetune.py` with
+`--train-config-yaml`, `--streaming-config-yaml` and a fresh output directory.
+
+Check any stage without a GPU:
+
+```bash
+uv run python examples/models/speech_cascades/launch_elift_stage.py --stage p4 --dry-run
+```
+
+Submit one stage on 32 H200 GPUs (4 nodes x 8, `speechllm:megratron-latest`, global batch 512):
+
+```bash
+STAGE=b2 amlt run projects/cluster/amlt_elift_h200.yaml elift-b2 -d "ELIFT B2 native"
+STAGE=p4 amlt run projects/cluster/amlt_elift_h200.yaml elift-p4 -d "ELIFT P4 native"
+```
+
+Valid stages are the 15 trainable catalog stages (all except the two reference-only Flash-2609 stages).
+B1-B4, C, E1-r, P3 and the two new-data stages start from the clean LLM and need nothing else.
+**P2, P4, P5, P6 and P4 Hindi 2k are continuation stages**: set `init_checkpoints.<stage>` in `launch.yaml` to an
+existing, validated **complete native Megatron checkpoint** (with the physical MTP layers) before submitting; the
+launcher refuses to start without it. The source DeepSpeed checkpoints are not Megatron checkpoints. These
+launchers have not been run on GPUs for this migration.
+
 Example B2 launch, inside a dependency-complete training container:
 
 ```bash

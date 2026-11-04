@@ -1,0 +1,40 @@
+# Per-stage launch inputs for the native Megatron-Bridge ELIFT trainer
+# (examples/models/speech_cascades/launch_elift_stage.py). Paths are the original absolute datablob/modelblob
+# locations. The data/train profiles and stage list come from catalog.yaml.
+
+# Fresh experiment root; each stage writes to <output_root>/<stage>.
+output_root: /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/elift-v0.1
+
+# Clean base LLMs, keyed by the catalog's language_model. These equal each data config's tokenizer path.
+base_models:
+  Qwen3.5-4B: /datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-4B/
+  Qwen3.5-9B: /datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt/Qwen3.5-9B/
+  Qwen3.8-27B: /datablob1/users/yuxuanhu/models/public/Qwen3.8-27B/
+
+# Frozen speech encoders, keyed by the catalog's encoder. The Flash-2609 encoder is reference-only.
+encoders:
+  phi4-mm-24l:
+    checkpoint: /datablob1/users/yuxuanhu/cascades_speech_encoder/phi4_mm_24L_20260825/model.checkpoint
+    mean_file: /datablob1/users/yuxuanhu/cascades_speech_encoder/phi4_mm_24L_20260825/mean.vec
+    invstd_file: /datablob1/users/yuxuanhu/cascades_speech_encoder/phi4_mm_24L_20260825/Invstd.vec
+    num_blocks: 24
+  checkpoint22l-23-blocks:
+    checkpoint: /datablob1/users/ruchaofan/cascades_speech_encoder/checkpoint_22L/model.checkpoint
+    mean_file: /datablob1/users/ruchaofan/cascades_speech_encoder/mean.vec
+    invstd_file: /datablob1/users/ruchaofan/cascades_speech_encoder/Invstd.vec
+    num_blocks: 23
+  s1-2605-23l:
+    checkpoint: /modelblob/projects/qwen-paper-ablation-cde-20260826/artifacts/qwen35-9b-s1-2605-step112000-speech-encoder/model.checkpoint
+    mean_file: /datablob1/users/ruchaofan/cascades_speech_encoder/mean.vec
+    invstd_file: /datablob1/users/ruchaofan/cascades_speech_encoder/Invstd.vec
+    num_blocks: 23
+
+# Complete native Megatron checkpoints (with the physical MTP layers) that continuation stages restore weights
+# from; the optimizer and scheduler start fresh. Set each to an existing absolute path once it has been
+# produced and validated. The source DeepSpeed checkpoints are not Megatron checkpoints and cannot be used.
+init_checkpoints:
+  p2: null # clean LLM + encoder + random MLP + native MTP layers
+  p4: null # complete E1-r step4000 + native ExpandedMTP4
+  p5: null # complete B3 step4000 + native ExpandedMTP4
+  p6: null # complete B3 step4000 + native ExpandedMTP7
+  p4-hindi-2k: null # complete P4 step4000, all four trained MTP layers
