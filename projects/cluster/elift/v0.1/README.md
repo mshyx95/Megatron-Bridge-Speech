@@ -20,8 +20,9 @@ SHA-256, and maps 17 experiment stages to their data and training profiles.
   packing settings are retained. KD is explicitly enabled in the collator and
   audio transforms so the speech student receives text-only teacher inputs.
 - [Data preparation](../../../../examples/models/speech_cascades/prepare_elift_data.py):
-  nested 2k/5k/10k/20k sampling and per-language publication. This does not submit
-  training/generation jobs, invoke a paid model, or download data.
+  reusable explicit-path config materialization, nested 2k/5k/10k/20k sampling,
+  and per-language publication. This does not submit training/generation jobs,
+  invoke a paid model, or download data.
 
 No source accounts, workspace bindings, job IDs, checkpoints, manifests, audio,
 generated answers or experiment results are checked in. Set deployment-specific
@@ -59,7 +60,7 @@ The 2k new-data experiment uses English 5k and other Tier1 languages plus Hindi
 with corrected Qwen-generated answer spec paths. Both preserve the source's
 17 sampling slots and auxiliary AST entries. They are **not** P4 continuations.
 Opaque immutable spec filenames are retained under explicit 2k/5k spec-root
-variables; do not replace them with different manifests.
+arguments; do not replace them with different manifests.
 
 The four-layer MTP depth weights are `[0.30, 0.25, 0.25, 0.20]`. P6 retains seven
 equal depth weights. MTP distillation weight is zero: these are main KL + MTP CE,
@@ -96,38 +97,86 @@ decay `0.01`, and linear warmup/decay through the existing recipe defaults.
 Megatron distributed Adam and DeepSpeed ZeRO-1 execution are different;
 configuration checks do not establish optimizer-state or numerical parity.
 
-Set the variables used by the selected data config:
+### Deployment paths
 
-| Variable | Required contents |
+Deployment data configs use literal, existing absolute datablob paths, including
+tokenizer directories. Files inside this project use paths relative to the
+repository root. Do not invent a new mount alias or require environment variables
+to locate remote data.
+
+Run the checked-in `materialize` subcommand from the repository root. It selects
+the stage's complete data snapshot from the catalog, takes explicit path
+arguments, and writes a fully resolved YAML without environment variables or
+other interpolation. No S2S source checkout, private binding file, or previously
+generated local config is required. Use the tokenizer matching the selected
+stage's LLM family and size; the script checks paths, not model-weight parity.
+
+Only arguments used by the selected stage are required. Missing arguments are
+reported by flag name even if the corresponding environment variable is set.
+
+| Argument | Required contents |
 | --- | --- |
-| `SPEECH_TOKENIZER_PATH` | Matching local LLM/speech tokenizer |
-| `SPEECH_DATA_SPEC_ROOT` | Original DataSpecs root, containing `mlang_s2/` |
-| `SPEECH_REWRITE_ROOT` | Original `asr_nothink/` and `asr_continuation/` roots |
-| `SPEECH_TIER1_ROOT` | Published per-language Tier1 specs |
-| `SPEECH_HINDI_ROOT` | Published Hindi specs and answer overlays |
-| `SPEECH_NEW_DATA_2K_SPEC_ROOT` | Exact immutable corrected 2k training-spec directory |
-| `SPEECH_NEW_DATA_5K_SPEC_ROOT` | Exact immutable corrected 5k training-spec directory |
-| `SPEECH_DATA_MOUNT_ROOT` | Mounted data prefix used by storage-API specs |
+| `--tokenizer-path` | Matching tokenizer directory; absolute if remote, or relative inside this project |
+| `--data-spec-root` | DataSpecs root containing `mlang_s2/` |
+| `--rewrite-root` | Parent of the original `asr_nothink/` and `asr_continuation/` directories |
+| `--tier1-root` | Published per-language Tier1 root |
+| `--hindi-root` | Published Hindi root containing `configs/` and answer overlays |
+| `--new-data-2k-spec-root` | Exact immutable corrected 2k directory containing `963dfa3f0d6b8b28.json` |
+| `--new-data-5k-spec-root` | Exact immutable corrected 5k directory containing `specs/fe910f419370af2f9a02.json` |
+| `--data-mount-root` | Actual mounted data prefix used by storage-API specs |
 
-Reference model configs additionally require `SPEECH_OUTPUT_ROOT`,
-`SPEECH_ENCODER_CHECKPOINT`, encoder mean/inverse-standard-deviation paths where
-specified, `SPEECH_INIT_CHECKPOINT`, and `SPEECH_NATIVE_MTP_ROOT`.
-There are no fallback account/path defaults.
+The commands below are examples: replace every `/absolute/path/to/...` argument
+with an existing directory on your mounted datablob. These are not proposed mount
+aliases. B2/B3/P4/P5 need the tokenizer, DataSpecs and rewrite roots. The original
+Hindi stages also need `--hindi-root`. The new-data stages additionally need the
+Tier1 root, mounted data prefix, and their corresponding immutable spec root.
 
-Example B2 launch, inside a dependency-complete training container:
+Example B2 materialization and launch, inside a dependency-complete training
+container:
 
 ```bash
-: "${MODEL_HF:?Set a prepared clean B2 speech HF directory}"
-: "${OUTPUT:?Set a fresh experiment directory}"
+uv run python examples/models/speech_cascades/prepare_elift_data.py materialize \
+  --stage b2 \
+  --tokenizer-path /absolute/path/to/Qwen3.5-9B \
+  --data-spec-root /absolute/path/to/DataSpecs \
+  --rewrite-root /absolute/path/to/asr_rewrite \
+  --output-config projects/cluster/.speech-elift-b2.local.yaml
+
 uv run --no-project --python "$(command -v python)" python -m torch.distributed.run \
   --nproc_per_node=2 examples/models/speech_cascades/finetune.py \
-  --hf-path "${MODEL_HF}" \
+  --hf-path /absolute/path/to/prepared-b2-speech-hf \
   --train-config-yaml projects/cluster/elift/v0.1/train/b2.yaml \
-  --streaming-config-yaml projects/cluster/elift/v0.1/data/b1.yaml \
-  --output-dir "${OUTPUT}" --name b2
+  --streaming-config-yaml projects/cluster/.speech-elift-b2.local.yaml \
+  --output-dir runs/elift-b2 --name b2
 ```
 
-Select data paths from the catalog rather than inferring them from stage names.
+For the new 5k mixture, use all required roots explicitly:
+
+```bash
+uv run python examples/models/speech_cascades/prepare_elift_data.py materialize \
+  --stage new-tier1-hindi-5k-e1r-8k \
+  --tokenizer-path /absolute/path/to/Qwen3.5-9B \
+  --data-spec-root /absolute/path/to/DataSpecs \
+  --rewrite-root /absolute/path/to/asr_rewrite \
+  --tier1-root /absolute/path/to/tier1_per_language \
+  --hindi-root /absolute/path/to/hindi \
+  --new-data-5k-spec-root /absolute/path/to/immutable-corrected-5k-directory \
+  --data-mount-root /absolute/path/to/mounted-datablob \
+  --output-config projects/cluster/.speech-elift-new-5k.local.yaml
+```
+
+The script validates every referenced dataset-spec file before writing and
+refuses to overwrite an existing output. It preserves all sampling slots,
+repeated spec references, filters, weights and KD settings. It does not check
+chunk/answer completeness or qualify checkpoints. Flash-encoder stages remain
+reference-only, even when their data paths validate.
+
+Generated `projects/cluster/.speech-*.local.yaml` files are Git-ignored because
+they contain deployment-specific paths. Share the script and stage templates,
+not personal account paths. The checked-in `data/` and `reference/` files remain
+parameterized migration templates for source comparison; use materialized data
+YAMLs for deployment, not those templates directly.
+
 Use a fresh output for each source experiment; continuation initializes weights
 but starts a fresh optimizer/scheduler. A preexisting output may trigger the
 existing training loop's resume behavior.
@@ -144,19 +193,22 @@ matching tokenizer; no account-specific source is built in.
 
 ```bash
 uv run python examples/models/speech_cascades/prepare_elift_data.py sample \
-  --source-config "${TIER1_SOURCE_CONFIG:?Set an unsampled full Tier1 source config}" \
-  --mode tier1_per_language --output-root "${SAMPLED_ROOT:?}" \
+  --source-config projects/cluster/.speech-unsampled-tier1.local.yaml \
+  --mode tier1_per_language --output-root runs/tier1-sampled \
   --targets 2000 5000 10000 20000 --languages en
 
 uv run python examples/models/speech_cascades/prepare_elift_data.py sample \
-  --source-config "${HINDI_SOURCE_CONFIG:?}" \
-  --mode hindi --hindi-spec "${HINDI_SOURCE_SPEC:?}" \
-  --tokenizer "${SPEECH_TOKENIZER_PATH:?}" --output-root "${HINDI_SAMPLED_ROOT:?}"
+  --source-config projects/cluster/.speech-unsampled-hindi.local.yaml \
+  --mode hindi --hindi-spec /absolute/path/to/full-hindi-spec.json \
+  --tokenizer /absolute/path/to/matching-tokenizer --output-root runs/hindi-sampled
 
 uv run python examples/models/speech_cascades/prepare_elift_data.py publish \
-  --source-root "${SAMPLED_ROOT:?}/en" --output-root "${PUBLISHED_ROOT:?}" \
-  --mount-root "${PUBLISHED_MOUNT_ROOT:?}" --mode tier1_per_language --language en
+  --source-root runs/tier1-sampled/en --output-root /absolute/path/to/fresh-published-root \
+  --mount-root /absolute/path/to/mounted-datablob --mode tier1_per_language --language en
 ```
+
+The sampling examples require separately supplied full, unsampled source configs;
+materializing a stage's existing 2k/5k mixture does not reconstruct unsampled data.
 
 Publication creates source-namespaced no-think and continuation answer spec
 overlays. All four sizes reference the shared 20k answer superset, but their
@@ -183,7 +235,7 @@ have been invented.**
 ## Validation boundary
 
 Focused checks cover the full inventory, source-to-native stage contracts,
-CLI wiring, all data slots and teacher transforms, environment resolution,
+CLI wiring, all data slots and teacher transforms, explicit-path materialization,
 nested sampling, partial-set failures, publication isolation, shared-20k
 answer paths and Hindi filtering. They use synthetic local fixtures.
 

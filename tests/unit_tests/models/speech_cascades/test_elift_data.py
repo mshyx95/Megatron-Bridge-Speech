@@ -1,11 +1,13 @@
 import importlib.util
 import json
+import shutil
 import struct
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
+from omegaconf import OmegaConf
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -55,6 +57,117 @@ def _config(tmp_path):
             {"dataset_spec": [str(spec)], "weight": 1.0},
         ]
     }
+
+
+def _deployment_fixture(tool, tmp_path, monkeypatch, stage="b2"):
+    paths = {key: tmp_path / key for key in tool.PATH_OPTIONS}
+    for key, path in paths.items():
+        path.mkdir()
+        monkeypatch.setenv(tool.PATH_OPTIONS[key], str(path))
+    catalog = yaml.safe_load((tool.ELIFT_CONFIGS / "catalog.yaml").read_text())
+    template = tool.ELIFT_CONFIGS / catalog["stages"][stage]["data_config"]
+    expected = OmegaConf.to_container(OmegaConf.load(template), resolve=True)
+    for slot in expected["dataset"]:
+        for path in slot["dataset_spec"]:
+            spec = Path(path)
+            spec.parent.mkdir(parents=True, exist_ok=True)
+            spec.write_text("{}")
+    for variable in tool.PATH_OPTIONS.values():
+        monkeypatch.setenv(variable, "/unavailable-environment-binding")
+    return paths, expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "stage",
+    list(yaml.safe_load((ROOT / "projects/cluster/elift/v0.1/catalog.yaml").read_text())["stages"]),
+)
+def test_materialization_preserves_all_stage_data_without_environment_lookups(tool, tmp_path, monkeypatch, stage):
+    paths, expected = _deployment_fixture(tool, tmp_path, monkeypatch, stage)
+    output = tmp_path / "data.yaml"
+    tool.materialize(stage, output, paths=paths)
+    content = output.read_text()
+    assert "${" not in content and "SPEECH_" not in content
+    assert yaml.safe_load(content) == expected
+    assert len(expected["dataset"]) == 17
+    assert expected["dataset_collator"]["knowledge_distillation"] is True
+
+
+@pytest.mark.unit
+def test_materialization_requires_stage_paths_and_does_not_take_them_from_environment(tool, tmp_path, monkeypatch):
+    monkeypatch.setenv("SPEECH_REWRITE_ROOT", str(tmp_path))
+    with pytest.raises(ValueError, match="--rewrite-root"):
+        tool.materialize("b2", tmp_path / "data.yaml", paths={})
+    with pytest.raises(ValueError, match="Unknown ELIFT stage"):
+        tool.materialize("not-a-stage", tmp_path / "data.yaml", paths={})
+    assert not (tmp_path / "data.yaml").exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("invalid", ["relative", "missing", "file", "interpolation"])
+def test_materialization_rejects_invalid_remote_roots(tool, tmp_path, monkeypatch, invalid):
+    paths, _ = _deployment_fixture(tool, tmp_path, monkeypatch)
+    replacements = {
+        "relative": Path("datablob/data"),
+        "missing": tmp_path / "not-mounted",
+        "file": tmp_path / "not-a-directory",
+        "interpolation": Path("${oc.env:SPEECH_DATA_SPEC_ROOT}"),
+    }
+    replacements["file"].write_text("not a directory")
+    paths["data_spec_root"] = replacements[invalid]
+    with pytest.raises((ValueError, FileNotFoundError), match="--data-spec-root"):
+        tool.materialize("b2", tmp_path / "data.yaml", paths=paths)
+    assert not (tmp_path / "data.yaml").exists()
+
+
+@pytest.mark.unit
+def test_materialization_checks_all_specs_before_writing_and_refuses_overwrites(tool, tmp_path, monkeypatch):
+    paths, expected = _deployment_fixture(tool, tmp_path, monkeypatch)
+    missing = Path(expected["dataset"][0]["dataset_spec"][0])
+    missing.unlink()
+    output = tmp_path / "data.yaml"
+    with pytest.raises(FileNotFoundError, match="dataset specs"):
+        tool.materialize("b2", output, paths=paths)
+    assert not output.exists()
+    missing.write_text("{}")
+    output.write_text("keep existing configuration\n")
+    with pytest.raises(FileExistsError):
+        tool.materialize("b2", output, paths=paths)
+    assert output.read_text() == "keep existing configuration\n"
+
+
+@pytest.mark.unit
+def test_materialization_keeps_project_local_tokenizer_and_output_paths_relative(tool, tmp_path, monkeypatch):
+    paths, _ = _deployment_fixture(tool, tmp_path, monkeypatch)
+    project = tmp_path / "project"
+    configs = project / "projects/cluster/elift/v0.1"
+    shutil.copytree(tool.ELIFT_CONFIGS, configs)
+    monkeypatch.setattr(tool, "ELIFT_CONFIGS", configs)
+    monkeypatch.chdir(project)
+    tokenizer = Path("models/tokenizer")
+    tokenizer.mkdir(parents=True)
+    paths["tokenizer_path"] = tokenizer
+    output = Path("projects/cluster/.speech-elift-b2.local.yaml")
+    tool.materialize("b2", output, paths=paths)
+    data = yaml.safe_load(output.read_text())
+    assert data["tokenizer"]["pretrained_model_name_or_path"] == "models/tokenizer"
+    assert data["dataset"][0]["tokenizer"]["pretrained_model_name_or_path"] == "models/tokenizer"
+    paths["tokenizer_path"] = Path("../tokenizer_path")
+    with pytest.raises(ValueError, match="--tokenizer-path"):
+        tool.materialize("b2", Path("outside.yaml"), paths=paths)
+    assert not Path("outside.yaml").exists()
+
+
+@pytest.mark.unit
+def test_materialization_cli_generates_a_trainable_data_profile(tool, tmp_path, monkeypatch):
+    paths, expected = _deployment_fixture(tool, tmp_path, monkeypatch)
+    output = tmp_path / "data.yaml"
+    argv = ["prepare_elift_data.py", "materialize", "--stage", "b2", "--output-config", str(output)]
+    for key in ("tokenizer_path", "data_spec_root", "rewrite_root"):
+        argv.extend(["--" + key.replace("_", "-"), str(paths[key])])
+    monkeypatch.setattr(sys, "argv", argv)
+    tool.main()
+    assert yaml.safe_load(output.read_text()) == expected
 
 
 @pytest.mark.unit

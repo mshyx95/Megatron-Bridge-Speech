@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Prepare and publish ELIFT nested data configs, without submitting jobs or generating answers.
+"""Materialize, prepare and publish ELIFT data configs without submitting jobs or generating answers.
 
 Ports the source sampler's weighted deterministic chunk ordering, Hindi effective-hour filters,
 per-language availability checks and publisher's shared-20k, source-namespaced answer layout.
+Materialization takes explicit mounted paths and needs no source checkout or environment bindings.
 Run real-data preparation on the designated data-preparation host, not a development GPU host.
 """
 
@@ -46,6 +47,17 @@ LOGGER = logging.getLogger(__name__)
 JSONValue: TypeAlias = "None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]"
 HOURS = (2000, 5000, 10000, 20000)
 LANGUAGES = frozenset({"en", "de", "es", "fr", "it", "ja", "ko", "pt", "zh"})
+ELIFT_CONFIGS = Path(__file__).resolve().parents[3] / "projects/cluster/elift/v0.1"
+PATH_OPTIONS = {
+    "tokenizer_path": "SPEECH_TOKENIZER_PATH",
+    "data_spec_root": "SPEECH_DATA_SPEC_ROOT",
+    "rewrite_root": "SPEECH_REWRITE_ROOT",
+    "tier1_root": "SPEECH_TIER1_ROOT",
+    "hindi_root": "SPEECH_HINDI_ROOT",
+    "new_data_2k_spec_root": "SPEECH_NEW_DATA_2K_SPEC_ROOT",
+    "new_data_5k_spec_root": "SPEECH_NEW_DATA_5K_SPEC_ROOT",
+    "data_mount_root": "SPEECH_DATA_MOUNT_ROOT",
+}
 
 
 def _json_value(value: object) -> JSONValue:
@@ -101,6 +113,75 @@ def _write_yaml(path: Path, value: dict[str, JSONValue]) -> None:
 
 def _load_config(path: Path) -> dict[str, JSONValue]:
     return _mapping(_json_value(OmegaConf.to_container(OmegaConf.load(path), resolve=True)))
+
+
+def _bind_data_paths(value: JSONValue, paths: dict[str, str]) -> JSONValue:
+    if isinstance(value, str):
+        for variable, path in paths.items():
+            value = value.replace(f"${{oc.env:{variable}}}", path)
+        return value
+    if isinstance(value, list):
+        return [_bind_data_paths(item, paths) for item in value]
+    if isinstance(value, dict):
+        return {key: _bind_data_paths(item, paths) for key, item in value.items()}
+    return value
+
+
+def materialize(stage: str, output: Path, *, paths: dict[str, Path]) -> None:
+    """Write a validated stage data config using explicit paths, without environment lookups.
+
+    Args:
+        stage: Stage name from the checked-in ELIFT catalog.
+        output: Fresh output YAML; project-local paths are relative to the repository root.
+        paths: Explicit path options such as ``data_spec_root`` and ``tokenizer_path``.
+            Remote data roots must be absolute. A tokenizer inside this project may be relative.
+
+    Raises:
+        ValueError: A stage, binding, or path is invalid.
+        FileNotFoundError: A root, tokenizer directory, or dataset spec is unavailable.
+        FileExistsError: The output already exists.
+    """
+    catalog = _mapping(_json_value(yaml.safe_load((ELIFT_CONFIGS / "catalog.yaml").read_text())))
+    stages = _mapping(catalog["stages"])
+    if stage not in stages:
+        raise ValueError(f"Unknown ELIFT stage {stage!r}; choose from {', '.join(stages)}")
+    profile = _mapping(stages[stage])
+    template = _mapping(_json_value(yaml.safe_load((ELIFT_CONFIGS / _string(profile["data_config"])).read_text())))
+    text = yaml.safe_dump(template)
+    required = {key for key, variable in PATH_OPTIONS.items() if f"${{oc.env:{variable}}}" in text}
+    missing = required - paths.keys()
+    if missing:
+        flags = ", ".join("--" + key.replace("_", "-") for key in sorted(missing))
+        raise ValueError(f"ELIFT stage {stage!r} requires explicit {flags}")
+    if paths.keys() - PATH_OPTIONS.keys():
+        raise ValueError("Unrecognized ELIFT path options")
+    bindings = {}
+    project = ELIFT_CONFIGS.parents[3]
+    for key, path in paths.items():
+        if "${" in str(path):
+            raise ValueError(f"--{key.replace('_', '-')} must be a literal path, not an interpolation")
+        if not path.is_absolute() and (key != "tokenizer_path" or not path.resolve().is_relative_to(project)):
+            raise ValueError(f"--{key.replace('_', '-')} must be an absolute remote path or a project-local tokenizer")
+        if not path.is_dir():
+            raise FileNotFoundError(f"--{key.replace('_', '-')} directory does not exist: {path}")
+        bindings[PATH_OPTIONS[key]] = path.as_posix()
+    bound = _mapping(_bind_data_paths(template, bindings))
+    if "${oc.env:" in yaml.safe_dump(bound):
+        raise ValueError("Data template contains an unsupported environment binding")
+    resolved = _mapping(_json_value(OmegaConf.to_container(OmegaConf.create(bound), resolve=True)))
+    specs = _spec_weights(resolved)
+    unavailable = sorted(path for path in specs if not Path(path).is_absolute() or not Path(path).is_file())
+    if unavailable:
+        raise FileNotFoundError("Missing or non-absolute dataset specs:\n" + "\n".join(unavailable))
+    _write_yaml(output, resolved)
+    LOGGER.info("Materialized %s: %d validated dataset specs -> %s", stage, len(specs), output)
+    LOGGER.info(
+        "Training profile: %s; checkpoint qualification: %s", profile["train_config"], profile["runtime_status"]
+    )
+    if profile["train_config"] is None:
+        LOGGER.warning(
+            "Stage %s is reference-only; its data config does not enable native Flash-encoder training", stage
+        )
 
 
 def _spec_weights(config: dict[str, JSONValue]) -> dict[str, float]:
@@ -529,9 +610,20 @@ def publish(
 
 
 def main() -> None:
-    """Dispatch data-only sampling or publication, without training or paid generation."""
+    """Dispatch path materialization, sampling or publication without training or paid generation."""
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+    deployment = subparsers.add_parser(
+        "materialize", help="Generate a stage data YAML from explicit paths, without environment variables"
+    )
+    deployment.add_argument("--stage", required=True, help="ELIFT catalog stage, for example b2, p4 or p4-hindi-2k")
+    deployment.add_argument("--output-config", type=Path, required=True, help="Fresh output YAML; never overwritten")
+    for key in PATH_OPTIONS:
+        deployment.add_argument(
+            "--" + key.replace("_", "-"),
+            type=Path,
+            help="Explicit mounted directory; required only when used by the selected stage",
+        )
     sample = subparsers.add_parser("sample")
     sample.add_argument("--source-config", type=Path, required=True)
     sample.add_argument("--output-root", type=Path, required=True)
@@ -550,6 +642,13 @@ def main() -> None:
     publication.add_argument("--variant-suffix", default="")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
+    if args.command == "materialize":
+        materialize(
+            args.stage,
+            args.output_config,
+            paths={key: value for key in PATH_OPTIONS if (value := getattr(args, key)) is not None},
+        )
+        return
     if args.command == "publish":
         publish(
             args.source_root,
