@@ -1,8 +1,12 @@
+# Reference data_new_tier1_hindi_5k_qwen.yaml: English 10k, other Tier1 + Hindi 5k.
+# Data-only override. Storage API enabled; immutable copies normalize old mount paths.
+# Tier1 answers use the previous successful Qwen3.8-27B routes; subset manifests unchanged.
+# E1-r model and optimizer unchanged; 8000-step training override is separate.
 use_storage_api: true
 dataset:
 - dataset_spec:
-  - ${oc.env:SPEECH_TIER1_ROOT}/en/configs/asr_chunk_tier1_en_10k.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/en/configs/asr_chunk_tier1_en_10k.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 4000
@@ -34,17 +38,17 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_TIER1_ROOT}/de/configs/asr_chunk_tier1_de_5k.json
-  - ${oc.env:SPEECH_TIER1_ROOT}/es/configs/asr_chunk_tier1_es_5k.json
-  - ${oc.env:SPEECH_TIER1_ROOT}/fr/configs/asr_chunk_tier1_fr_5k.json
-  - ${oc.env:SPEECH_TIER1_ROOT}/it/configs/asr_chunk_tier1_it_5k.json
-  - ${oc.env:SPEECH_TIER1_ROOT}/ja/configs/asr_chunk_tier1_ja_5k.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/fe910f419370af2f9a02.json
-  - ${oc.env:SPEECH_TIER1_ROOT}/zh/configs/asr_chunk_tier1_zh_5k.json
-  - ${oc.env:SPEECH_TIER1_ROOT}/ko/configs/asr_chunk_tier1_ko_5k.json
-  - ${oc.env:SPEECH_HINDI_ROOT}/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/de/configs/asr_chunk_tier1_de_5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/es/configs/asr_chunk_tier1_es_5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/fr/configs/asr_chunk_tier1_fr_5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/it/configs/asr_chunk_tier1_it_5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/ja/configs/asr_chunk_tier1_ja_5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/fe910f419370af2f9a02.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/zh/configs/asr_chunk_tier1_zh_5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/ko/configs/asr_chunk_tier1_ko_5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 4000
@@ -74,20 +78,20 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_de_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_es_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_fr_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_it_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_it_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_ja_asr_3k.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_zh_asr_3k.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_de_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_es_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_fr_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_ja_asr_3k.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_zh_asr_3k.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -117,32 +121,32 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -170,11 +174,11 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -202,9 +206,9 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/x2en_prod_st_cot_1k.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/st/x2en_prod_st_cot_1k.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 4000
@@ -235,10 +239,10 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_en2x_train_cot.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_x2en_train_cot.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/st/person_filtered/covost2_en2x_train_cot.json
+  - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/st/person_filtered/covost2_x2en_train_cot.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -265,10 +269,10 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/12ec3b56632779dab227.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_earnings.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/12ec3b56632779dab227.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_earnings.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 4000
@@ -300,17 +304,17 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/79cc7278866698f181a1.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/53f7dbc28e1a5ff7bf04.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/8714621305290697241a.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/bcb925c3602b4941020a.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/df60cde8ed1ffad3c873.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/95acc2ec558b4264d3ce.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/d4fb865ce194045d7c8e.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/a16a09bdc98e7690da30.json
-  - ${oc.env:SPEECH_HINDI_ROOT}/asr_nothink/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/79cc7278866698f181a1.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/53f7dbc28e1a5ff7bf04.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/8714621305290697241a.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/bcb925c3602b4941020a.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/df60cde8ed1ffad3c873.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/95acc2ec558b4264d3ce.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/d4fb865ce194045d7c8e.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/a16a09bdc98e7690da30.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/asr_nothink/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 4000
@@ -340,20 +344,20 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_en_asr_2k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_de_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_es_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_fr_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_ja_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_zh_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_gigaspeech_2k5.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_en_asr_2k.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_de_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_es_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_fr_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_it_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_it_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_pt_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_pt_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_pt_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_ja_asr_3k.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_zh_asr_3k.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_gigaspeech_2k5.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -383,32 +387,32 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_fleurs.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_en.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_de.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_fr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_it.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_pt.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_zh.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_pt.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_pt.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_zh.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_zh.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_en.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_de.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_fr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_it.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_it.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_fleurs.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -436,11 +440,11 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_openasr_earnings.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_openasr_ami.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_openasr_ami.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_openasr_earnings.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -468,10 +472,10 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/55ed8299c5874ad3e7bc.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_earnings.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/55ed8299c5874ad3e7bc.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_earnings.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 4000
@@ -503,17 +507,17 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/27851dff4ed65578af99.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/991cdca3ca3ca5b31040.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/a4552e4092d8116f0e13.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/fdb85ea99637b5b659c1.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/18929cfbf27892b82911.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/ce7285d4b22c4fd8735f.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/9e38c7d4414382338916.json
-  - ${oc.env:SPEECH_NEW_DATA_5K_SPEC_ROOT}/specs/b66537d85f04a1f17a63.json
-  - ${oc.env:SPEECH_HINDI_ROOT}/asr_continuation/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/27851dff4ed65578af99.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/991cdca3ca3ca5b31040.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/a4552e4092d8116f0e13.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/fdb85ea99637b5b659c1.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/18929cfbf27892b82911.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/ce7285d4b22c4fd8735f.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/9e38c7d4414382338916.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/b66537d85f04a1f17a63.json
+  - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/asr_continuation/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 4000
@@ -543,20 +547,20 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_en_asr_2k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_de_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_es_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_fr_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_ja_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_zh_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_gigaspeech_2k5.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_en_asr_2k.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_de_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_es_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_fr_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_it_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_it_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_pt_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_pt_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_pt_asr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_ja_asr_3k.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_zh_asr_3k.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_gigaspeech_2k5.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -586,32 +590,32 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_fleurs.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_en.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_de.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_fr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_it.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_pt.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_zh.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_pt.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_pt.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_zh.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_zh.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_en.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_de.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_fr.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_it.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_es.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_it.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_fleurs.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -639,11 +643,11 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1
 - dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_openasr_earnings.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_openasr_ami.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_openasr_ami.json
+  - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_openasr_earnings.json
   use_num_examples_as_durations: true
   filter_options:
     max_utterance_frames: 3000
@@ -671,4 +675,4 @@ dataset:
   audio_processor: ${data_audio_processor}
   pad_to_context_length: false
   dataset_provider: blob_chunk_alm
-  path_prefix_in_orange: ${oc.env:SPEECH_DATA_MOUNT_ROOT}
+  path_prefix_in_orange: /datablob1

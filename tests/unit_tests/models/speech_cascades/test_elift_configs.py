@@ -1,5 +1,6 @@
 import argparse
 import ast
+import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -105,7 +106,7 @@ def test_stage_training_profiles_preserve_source_contract(name, monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.parametrize("name", list(CATALOG["stages"]))
-def test_standalone_data_keeps_all_source_slots_and_teacher_transforms(name, monkeypatch):
+def test_standalone_data_keeps_all_source_slots_and_teacher_transforms(name):
     stage = CATALOG["stages"][name]
     source = OmegaConf.merge(
         OmegaConf.load(CONFIGS / stage["base_reference"]), OmegaConf.load(CONFIGS / stage["reference"])
@@ -122,36 +123,33 @@ def test_standalone_data_keeps_all_source_slots_and_teacher_transforms(name, mon
         assert transform.pop("knowledge_distillation") is True
         assert transform == OmegaConf.to_container(original.transform_cls, resolve=False)
     assert data.dataset_collator.knowledge_distillation is True
-    for variable in (
-        "SPEECH_DATA_SPEC_ROOT",
-        "SPEECH_REWRITE_ROOT",
-        "SPEECH_TIER1_ROOT",
-        "SPEECH_HINDI_ROOT",
-        "SPEECH_NEW_DATA_2K_SPEC_ROOT",
-        "SPEECH_NEW_DATA_5K_SPEC_ROOT",
-        "SPEECH_DATA_MOUNT_ROOT",
-        "SPEECH_TOKENIZER_PATH",
-    ):
-        monkeypatch.setenv(variable, "/fixture/" + variable.lower())
     resolved = OmegaConf.to_container(data, resolve=True)
+    source_resolved = OmegaConf.to_container(source, resolve=True)
+    assert resolved["tokenizer"] == source_resolved["tokenizer"]
+    assert "/datablob" in resolved["tokenizer"]["pretrained_model_name_or_path"]
+    for original, migrated in zip(source_resolved["dataset"], resolved["dataset"]):
+        assert migrated["dataset_spec"] == original["dataset_spec"]
+        assert migrated.get("path_prefix_in_orange") == original.get("path_prefix_in_orange")
     assert resolved["seq_len"] == 8192
     assert all(entry["transform_cls"]["knowledge_distillation"] for entry in resolved["dataset"])
 
 
 @pytest.mark.unit
-def test_no_private_runtime_bindings_in_migrated_configs():
-    forbidden = (
-        "/home/",
-        "/datablob",
-        "/modelblob",
-        "users/",
-        "blob.core.windows.net",
-        "WANDB_RUN_ID",
-        "workspace_name",
-    )
+def test_data_configs_use_literal_paths_without_environment_variables():
+    for path in (CONFIGS / "data").glob("*.yaml"):
+        content = path.read_text()
+        assert "${oc.env:" not in content and "SPEECH_" not in content, path
+        for entry in yaml.safe_load(content)["dataset"]:
+            assert all(spec.startswith("/datablob") for spec in entry["dataset_spec"]), path
     for path in CONFIGS.rglob("*.yaml"):
         content = path.read_text()
-        assert not any(token in content for token in forbidden), path
+        assert not any(token in content for token in ("blob.core.windows.net", "WANDB_RUN_ID", "workspace_name")), path
+
+
+@pytest.mark.unit
+def test_reference_configs_are_byte_identical_to_the_source():
+    for name, digest in CATALOG["reference_sha256"].items():
+        assert hashlib.sha256((CONFIGS / "reference" / name).read_bytes()).hexdigest() == digest, name
 
 
 @pytest.mark.unit

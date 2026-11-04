@@ -1,2 +1,3 @@
+# Double the E1-r training duration; keep warmup, LR, batch size and save interval unchanged.
 training_args:
   max_steps: 8000

@@ -44,7 +44,7 @@ stages:
   b2:
     reference: reference/qwen3-5-9b-s2-projmlp-random-p1-inhouse-opensource-phi4mm-encoder-4k.yaml
     base_reference: reference/qwen3-5-9b-s2-projmlp-random-p1-inhouse-opensource-phi4mm-encoder-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b2.yaml
     train_config: train/b2.yaml
     language_model: Qwen3.5-9B
     encoder: phi4-mm-24l
@@ -60,7 +60,7 @@ stages:
   b3:
     reference: reference/qwen3-8-27b-s2-projmlp-random-p1-inhouse-opensource-phi4mm-encoder-4k.yaml
     base_reference: reference/qwen3-8-27b-s2-projmlp-random-p1-inhouse-opensource-phi4mm-encoder-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b3.yaml
     train_config: train/b3.yaml
     language_model: Qwen3.8-27B
     encoder: phi4-mm-24l
@@ -76,7 +76,7 @@ stages:
   b4:
     reference: reference/qwen3-8-27b-s2-projonly-lfg3-4k.yaml
     base_reference: reference/qwen3-8-27b-s2-projonly-lfg3-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b3.yaml
     train_config: train/b4.yaml
     language_model: Qwen3.8-27B
     encoder: checkpoint22l-23-blocks
@@ -92,7 +92,7 @@ stages:
   c:
     reference: reference/qwen3-5-9b-s2-projmlp-random-p1-inhouse-opensource-checkpoint22l-encoder-4k.yaml
     base_reference: reference/qwen3-5-9b-s2-projmlp-random-p1-inhouse-opensource-checkpoint22l-encoder-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b2.yaml
     train_config: train/c.yaml
     language_model: Qwen3.5-9B
     encoder: checkpoint22l-23-blocks
@@ -108,7 +108,7 @@ stages:
   e1r:
     reference: reference/qwen3-5-9b-s2-projmlp-s1-2605-init-p1-inhouse-opensource-projonly-4k.yaml
     base_reference: reference/qwen3-5-9b-s2-projmlp-s1-2605-init-p1-inhouse-opensource-projonly-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b2.yaml
     train_config: train/e1r.yaml
     language_model: Qwen3.5-9B
     encoder: s1-2605-23l
@@ -172,7 +172,7 @@ stages:
   p2:
     reference: reference/p2-mtp4.yaml
     base_reference: reference/qwen3-5-9b-s2-projmlp-random-p1-inhouse-opensource-checkpoint22l-encoder-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b2.yaml
     train_config: train/p2.yaml
     language_model: Qwen3.5-9B
     encoder: checkpoint22l-23-blocks
@@ -188,7 +188,7 @@ stages:
   p3:
     reference: reference/p3-encproj.yaml
     base_reference: reference/qwen3-5-9b-s2-projmlp-random-p1-inhouse-opensource-checkpoint22l-encoder-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b2.yaml
     train_config: train/p3.yaml
     language_model: Qwen3.5-9B
     encoder: checkpoint22l-23-blocks
@@ -204,7 +204,7 @@ stages:
   p4:
     reference: reference/p4-e1r-mtp4.yaml
     base_reference: reference/qwen3-5-9b-s2-projmlp-s1-2605-init-p1-inhouse-opensource-projonly-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b2.yaml
     train_config: train/p4.yaml
     language_model: Qwen3.5-9B
     encoder: s1-2605-23l
@@ -220,7 +220,7 @@ stages:
   p5:
     reference: reference/p5-b3-mtp4.yaml
     base_reference: reference/qwen3-8-27b-s2-projmlp-random-p1-inhouse-opensource-phi4mm-encoder-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b3.yaml
     train_config: train/p5.yaml
     language_model: Qwen3.8-27B
     encoder: phi4-mm-24l
@@ -236,7 +236,7 @@ stages:
   p6:
     reference: reference/p6-b3-mtp7.yaml
     base_reference: reference/qwen3-8-27b-s2-projmlp-random-p1-inhouse-opensource-phi4mm-encoder-4k.yaml
-    data_config: data/b1.yaml
+    data_config: data/b3.yaml
     train_config: train/p6.yaml
     language_model: Qwen3.8-27B
     encoder: phi4-mm-24l

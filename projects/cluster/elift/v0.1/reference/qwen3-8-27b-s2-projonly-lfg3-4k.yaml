@@ -1,670 +1,755 @@
-output_root: ${oc.env:SPEECH_OUTPUT_ROOT}
-output_dir: ${oc.env:SPEECH_OUTPUT_ROOT}
+output_root: ${oc.env:OUTPUT_ROOT, "~/phyagi_results"}
+output_dir: ${output_root}/qwen3_8_27b_s2_projonly_lfg3_4k/
 data_audio_processor:
-  name: cascades
+  name: "cascades"
+
 seq_len: 8192
 compression_rate: 8
 downsample_rate: 1
 batcher_batch_size: ${seq_len}
-use_storage_api: false
-multi_threaded_download: true
+
+use_storage_api: False
+multi_threaded_download: True
 prefetch_queue_size: 48
 conv_template: qwen3_audio_instruct
-padding_mask: true
-streaming_compression: true
+padding_mask: True
+streaming_compression: True
+
 tokenizer:
-  pretrained_model_name_or_path: ${oc.env:SPEECH_TOKENIZER_PATH}
-pad_to_context_length: false
+  pretrained_model_name_or_path: /datablob1/users/yuxuanhu/models/public/Qwen3.8-27B/
+
+pad_to_context_length: False
+
 dataset:
-- dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_en.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 4000
-    min_utterance_frames: 50
-    max_utterance_labels: 200
-    min_utterance_labels: 1
-    remove_utterance_by_wer: true
-    remove_utterance_by_ctc_length: true
-    ctc_filter_subsampling_factor: 8
-    illegal_char_filter: true
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: asr
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_de.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_fr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_it.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_ja_new.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_pt.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_inhouse_zh.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 4000
-    min_utterance_frames: 50
-    max_utterance_labels: 600
-    min_utterance_labels: 1
-    remove_utterance_by_ctc_length: true
-    ctc_filter_subsampling_factor: 8
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: asr
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_de_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_es_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_fr_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_it_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_it_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_ja_asr_3k.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/open_zh_asr_3k.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 400
-    min_utterance_labels: 1
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: asr-lexical
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  text_normalization:
-    case_normalize: lower
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 800
-    min_utterance_labels: 1
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: asr
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 3
-    max_utterance_labels: 600
-    min_utterance_labels: 1
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: asr
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/x2en_prod_st_cot_1k.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 4000
-    min_utterance_frames: 50
-    max_utterance_labels: 600
-    min_utterance_labels: 3
-    remove_utterance_by_ctc_length: true
-    ctc_filter_subsampling_factor: 8
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: ast-cot
-    fixed_prompt: false
-    batch_format: samples_to_sequence
-  sp_transcription: false
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_en2x_train_cot.json
-  - ${oc.env:SPEECH_DATA_SPEC_ROOT}/mlang_s2/st/person_filtered/covost2_x2en_train_cot.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    min_utterance_labels: 1
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: ast-cot
-    fixed_prompt: false
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_earnings.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 4000
-    min_utterance_frames: 50
-    max_utterance_labels: 200
-    min_utterance_labels: 3
-    remove_utterance_by_wer: true
-    remove_utterance_by_ctc_length: true
-    ctc_filter_subsampling_factor: 8
-    illegal_char_filter: true
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-response
-    fixed_prompt: false
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_ja_new.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_inhouse_zh.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 4000
-    min_utterance_frames: 50
-    max_utterance_labels: 600
-    min_utterance_labels: 3
-    remove_utterance_by_ctc_length: true
-    ctc_filter_subsampling_factor: 8
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-response
-    fixed_prompt: false
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_en_asr_2k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_de_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_es_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_fr_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_ja_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/open_zh_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_gigaspeech_2k5.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 400
-    min_utterance_labels: 3
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-response
-    fixed_prompt: false
-    batch_format: samples_to_sequence
-  text_normalization:
-    case_normalize: lower
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_fleurs.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 800
-    min_utterance_labels: 3
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-response
-    fixed_prompt: false
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_nothink/configs/asr_chunk_openasr_earnings.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 600
-    min_utterance_labels: 3
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-response
-    fixed_prompt: false
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_earnings.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 4000
-    min_utterance_frames: 50
-    max_utterance_labels: 200
-    min_utterance_labels: 3
-    remove_utterance_by_wer: true
-    remove_utterance_by_ctc_length: true
-    ctc_filter_subsampling_factor: 8
-    illegal_char_filter: true
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-continuation
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_ja_new.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_inhouse_zh.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 4000
-    min_utterance_frames: 50
-    max_utterance_labels: 600
-    min_utterance_labels: 3
-    remove_utterance_by_ctc_length: true
-    ctc_filter_subsampling_factor: 8
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-continuation
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_en_asr_2k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_de_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_es_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_fr_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_it_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_mls_pt_asr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_ja_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/open_zh_asr_3k.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_gigaspeech_2k5.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 400
-    min_utterance_labels: 3
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-continuation
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  text_normalization:
-    case_normalize: lower
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_ja.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_pt.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_cv15_zh.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_en.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_de.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_fr.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_es.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_voxpopuli_it.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_fleurs.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 800
-    min_utterance_labels: 3
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-continuation
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
-- dataset_spec:
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_openasr_ami.json
-  - ${oc.env:SPEECH_REWRITE_ROOT}/asr_continuation/configs/asr_chunk_openasr_earnings.json
-  use_num_examples_as_durations: true
-  filter_options:
-    max_utterance_frames: 3000
-    min_utterance_frames: 50
-    max_utterance_labels: 600
-    min_utterance_labels: 3
-  transform_cls:
-    name: AudioTextConversationTransform
-    conv_template: ${conv_template}
-    prompt_formatter: audio-continuation
-    fixed_prompt: true
-    batch_format: samples_to_sequence
-  use_storage_api: ${use_storage_api}
-  multi_threaded_download: ${multi_threaded_download}
-  prefetch_queue_size: ${prefetch_queue_size}
-  compression_rate: ${compression_rate}
-  streaming_compression: ${streaming_compression}
-  qformer_compression_rate: ${downsample_rate}
-  seq_len: ${seq_len}
-  batcher_buffer_size: 1000
-  batcher_batch_size: ${batcher_batch_size}
-  num_chunks_for_shuffling: 10
-  weight: 1.0
-  tokenizer: ${tokenizer}
-  audio_processor: ${data_audio_processor}
-  pad_to_context_length: false
-  dataset_provider: blob_chunk_alm
+  # Original ASR: in-house English and earnings.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 1
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR: multilingual in-house data.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_ja_new.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_inhouse_zh.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR: MLS, GigaSpeech, ReazonSpeech, and WenetSpeech.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_en_asr_2k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_de_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_es_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_fr_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_it_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_mls_pt_asr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_ja_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/open_zh_asr_3k.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_gigaspeech_2k5.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 400
+      min_utterance_labels: 1
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr-lexical
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    text_normalization:
+      case_normalize: "lower"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR: CommonVoice, VoxPopuli, and FLEURS.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_ja.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_pt.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_cv15_zh.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_en.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_de.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_fr.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_fleurs.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 800
+      min_utterance_labels: 1
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Original ASR: OpenASR AMI and earnings.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_ami.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_openasr_earnings.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 3
+      max_utterance_labels: 600
+      min_utterance_labels: 1
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: asr
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Speech translation: production CoT data.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/st/x2en_prod_st_cot_1k.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: ast-cot
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+
+    sp_transcription: False
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Speech translation: CoVoST2 and FLEURS.
+  - dataset_spec:
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/st/person_filtered/covost2_en2x_train_cot.json
+      - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/st/person_filtered/covost2_x2en_train_cot.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      min_utterance_labels: 1
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: ast-cot
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # Rewritten ASR: Qwen3.5 responses distilled from reference transcripts.
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_en.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_earnings.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 3
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_de.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_fr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_ja_new.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_inhouse_zh.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_en_asr_2k.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_de_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_es_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_fr_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_it_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_it_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_pt_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_pt_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_mls_pt_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_ja_asr_3k.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/open_zh_asr_3k.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_gigaspeech_2k5.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 400
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+
+    text_normalization:
+      case_normalize: "lower"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_en.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_de.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_fr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_zh.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_zh.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_cv15_zh.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_en.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_de.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_fr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_fleurs.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 800
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_openasr_ami.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_openasr_ami.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_openasr_earnings.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-response
+      fixed_prompt: False
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  # ASR continuation: Qwen3.5 continuations distilled from reference transcripts.
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_en.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_earnings.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 200
+      min_utterance_labels: 3
+      remove_utterance_by_wer: true
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+      illegal_char_filter: true
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_de.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_fr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_ja_new.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_inhouse_zh.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 4000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+      remove_utterance_by_ctc_length: true
+      ctc_filter_subsampling_factor: 8
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_en_asr_2k.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_de_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_es_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_fr_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_it_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_it_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_pt_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_pt_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_mls_pt_asr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_ja_asr_3k.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/open_zh_asr_3k.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_gigaspeech_2k5.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 400
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    text_normalization:
+      case_normalize: "lower"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_en.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_de.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_fr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_zh.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_ja.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_pt.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_zh.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_cv15_zh.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_en.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_de.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_fr.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_es.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_voxpopuli_it.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_fleurs.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 800
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
+  - dataset_spec:
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_openasr_ami.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_openasr_ami.json
+      - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_openasr_earnings.json
+
+    use_num_examples_as_durations: True
+    filter_options:
+      max_utterance_frames: 3000
+      min_utterance_frames: 50
+      max_utterance_labels: 600
+      min_utterance_labels: 3
+
+    transform_cls:
+      name: AudioTextConversationTransform
+      conv_template: ${conv_template}
+      prompt_formatter: audio-continuation
+      fixed_prompt: True
+      batch_format: "samples_to_sequence"
+
+    use_storage_api: ${use_storage_api}
+    multi_threaded_download: ${multi_threaded_download}
+    prefetch_queue_size: ${prefetch_queue_size}
+    compression_rate: ${compression_rate}
+    streaming_compression: ${streaming_compression}
+    qformer_compression_rate: ${downsample_rate}
+    seq_len: ${seq_len}
+    batcher_buffer_size: 1000
+    batcher_batch_size: ${batcher_batch_size}
+    num_chunks_for_shuffling: 10
+    weight: 1.0
+    tokenizer: ${tokenizer}
+    audio_processor: ${data_audio_processor}
+    pad_to_context_length: False
+    dataset_provider: blob_chunk_alm
+
 dataset_concat: random_iterable
 dataset_provider: blob_chunk_alm
 dataset_collator:
@@ -672,8 +757,9 @@ dataset_collator:
   tokenizer: ${tokenizer}
   audio_key: inputs_embeds
   padding_mask: ${padding_mask}
+
 audio_tower:
-  name: cascades
+  name: "cascades"
   config:
     input_size: 80
     attention_dim: 1024
@@ -709,36 +795,38 @@ audio_tower:
     encoder_embedding_config:
       input_size: 80
     use_flashattention_t5bias: true
+
   init_model:
-    pretrained_speech_encoder_path: ${oc.env:SPEECH_ENCODER_CHECKPOINT}
-    mean_file: ${oc.env:SPEECH_ENCODER_MEAN}
-    invstd_file: ${oc.env:SPEECH_ENCODER_INVSTD}
+    pretrained_speech_encoder_path: /datablob1/users/ruchaofan/cascades_speech_encoder/checkpoint_22L/model.checkpoint
+    mean_file: /datablob1/users/ruchaofan/cascades_speech_encoder/mean.vec
+    invstd_file: /datablob1/users/ruchaofan/cascades_speech_encoder/Invstd.vec
+
 model:
-  pretrained_model_name_or_path: ${oc.env:SPEECH_TOKENIZER_PATH}
+  pretrained_model_name_or_path: /datablob1/users/yuxuanhu/models/public/Qwen3.8-27B/
   model_type: qwen3_5_audio_instruct
-  trust_remote_code: true
+  trust_remote_code: True
+
   embd_layer:
     embedding_cls: audio
     projection_cls: lfg3
     projector_hidden: 4096
     compression_rate: ${compression_rate}
-    enable_gradient_checkpointing: true
-    use_qformer: false
-  _attn_implementation: flash_attention_2
+    enable_gradient_checkpointing: True
+    use_qformer: False
+
+  _attn_implementation: "flash_attention_2"
   audio_processor: ${audio_tower}
-  use_fused_kernels: true
-  use_fused_dense: false
-  gradient_checkpointing: true
-  knowledge_distillation: true
+  use_fused_kernels: True
+  use_fused_dense: False
+  gradient_checkpointing: True
+  knowledge_distillation: True
   distillation_temperature: 2.0
   distillation_kl_chunk_size: 128
+
   customized_params_conf:
-    FREEZE_PATTERNS:
-    - model.layers
-    - model.norm
-    - lm_head
-    - model.embed_tokens.weight
-    - model.embed_tokens_extend.encoder
+    # Freeze the LLM and the speech encoder: only the audio projector is trained.
+    FREEZE_PATTERNS: ["model.layers", "model.norm", "lm_head", "model.embed_tokens.weight", "model.embed_tokens_extend.encoder"]
+
 training_args:
   ds_config:
     bf16:
@@ -746,24 +834,25 @@ training_args:
     optimizer:
       type: Adam
       params:
-        lr: 0.0001
+        lr: 1.0e-4
         betas:
-        - 0.9
-        - 0.95
-        eps: 1.0e-07
+          - 0.9
+          - 0.95
+        eps: 1.0e-7
         weight_decay: 0.01
         adam_w_mode: true
     scheduler:
       type: WarmupDecayLR
       params:
         warmup_min_lr: 0
-        warmup_max_lr: 0.0001
+        warmup_max_lr: 1.0e-4
         warmup_type: linear
         warmup_num_steps: 100
     zero_optimization:
       stage: 1
       overlap_comm: true
-      reduce_bucket_size: 500000000.0
+      reduce_bucket_size: 5.0e+8
+
     gradient_clipping: 1.0
     steps_per_print: 10000000000
     train_batch_size: 512
@@ -771,10 +860,11 @@ training_args:
     wall_clock_breakdown: true
     zero_allow_untested_optimizer: true
     initial_dynamic_scale: 4096
-  do_final_eval: false
+  do_final_eval: False
   num_train_epochs: 1
   max_steps: 4000
   logging_steps: 10
+  # 10 checkpoints spread over the whole run so an early-stopping point stays available.
   save_steps: 400
   save_last_n_checkpoints: 10
   save_last_n_steps: 400
@@ -790,6 +880,6 @@ training_args:
   dataloader_prefetch_factor: 512
   dataloader_num_workers: 1
   iterable_dataloader_prefetch_factor: 128
-  iterable_dataloader_pin_memory: true
-  batch_tracker: true
+  iterable_dataloader_pin_memory: True
+  batch_tracker: True
   timeout: 7200

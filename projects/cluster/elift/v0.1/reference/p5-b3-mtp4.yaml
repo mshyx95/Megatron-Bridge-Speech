@@ -1,34 +1,40 @@
-description: 'Production P5: continue the ORIGINAL full trained B3 27B step4000 checkpoint, not a single-layer production
-  checkpoint, and add/train ExpandedMTP4. Requires from_pretrained to consume mtp_pretrained_model_name_or_path: load and
-  validate native MTP layer 0 from the matching Qwen3.8-27B base directory, then call initialize_missing_mtp_layers_from_first
-  to copy-init independent layers 1-3 BEFORE restoring the full trained DeepSpeed source to preserve encoder, learned MLP
-  and backbone. Four independent layers, not shared weights or multi-head. Never substitute 9B/4B weights. Runtime compatibility
-  requires native 27B MTP tensors compatible with Qwen3_5MTP; confirm keys and tensor shapes. Null all three audio_tower.init_model
-  paths, retaining the mapping because encoder.post_init calls .get(). Retain model.audio_processor interpolation so post-init
-  reloads neither trained encoder weights nor normalization statistics. User-corrected MTP depth: four layers. Established
-  ExpandedMTP4 recipe defaults: depth weights [0.30, 0.25, 0.25, 0.20] and extra-layer copy-init enabled. Retain MTP loss
-  weight 0.1 and auxiliary MTP distillation weight 0.0 (MTP CE). Main KLD stays enabled with inherited distillation weight
-  (model default 1.0), temperature 2.0 and KL chunk size 128. Inherit full inhouse plus open-source data, 1:1:1 ASR:nothink:continuation
-  and two auxiliary AST entries. Freeze backbone and encoder; train only the learned MLP projector and MTP, without LoRA.
-  Start a fresh optimizer/scheduler in a new production output for 4000 ADDITIONAL steps; continuation LR 4.0e-5, microbatch
-  1, global batch 512, four H200 nodes with eight GPUs each. Do not resume the source optimizer.'
-output_dir: ${oc.env:SPEECH_OUTPUT_ROOT}
+description: >-
+  Production P5: continue the ORIGINAL full trained B3 27B step4000 checkpoint,
+  not a single-layer production checkpoint, and add/train ExpandedMTP4.
+  Requires from_pretrained to consume mtp_pretrained_model_name_or_path:
+  load and validate native MTP layer 0 from the matching Qwen3.8-27B base
+  directory, then call initialize_missing_mtp_layers_from_first to copy-init
+  independent layers 1-3 BEFORE restoring the full trained DeepSpeed source
+  to preserve encoder, learned MLP and backbone. Four independent layers,
+  not shared weights or multi-head. Never substitute 9B/4B weights. Runtime
+  compatibility requires native 27B MTP tensors compatible with Qwen3_5MTP;
+  confirm keys and tensor shapes. Null all three audio_tower.init_model paths,
+  retaining the mapping because encoder.post_init calls .get(). Retain
+  model.audio_processor interpolation so post-init reloads neither trained
+  encoder weights nor normalization statistics. User-corrected MTP depth: four
+  layers. Established ExpandedMTP4 recipe defaults: depth weights
+  [0.30, 0.25, 0.25, 0.20] and extra-layer copy-init enabled. Retain MTP loss
+  weight 0.1 and auxiliary MTP distillation weight 0.0 (MTP CE). Main KLD stays
+  enabled with inherited distillation weight (model default 1.0), temperature
+  2.0 and KL chunk size 128. Inherit full inhouse plus open-source data, 1:1:1
+  ASR:nothink:continuation and two auxiliary AST entries. Freeze backbone and
+  encoder; train only the learned MLP projector and MTP, without LoRA.
+  Start a fresh optimizer/scheduler in a new production output for 4000
+  ADDITIONAL steps; continuation LR 4.0e-5, microbatch 1, global batch 512,
+  four H200 nodes with eight GPUs each. Do not resume the source optimizer.
+output_dir: /modelblob/projects/product-train-expanded-mtp4-20260912/amlt-results/p5-qwen38-27b-b3-mlp-expanded-mtp4-full-add4k
 audio_tower:
   init_model:
     pretrained_speech_encoder_path: null
     mean_file: null
     invstd_file: null
 model:
-  pretrained_model_name_or_path: ${oc.env:SPEECH_INIT_CHECKPOINT}
-  mtp_pretrained_model_name_or_path: ${oc.env:SPEECH_NATIVE_MTP_ROOT}
+  pretrained_model_name_or_path: /modelblob/projects/qwen-phi-mlp-full-backbone-ablation-20260826/amlt-results/qwen38-27b-phi-mlp-full-4k/4000
+  mtp_pretrained_model_name_or_path: /datablob1/users/yuxuanhu/models/public/Qwen3.8-27B/
   model_type: qwen3_5_mtp_audio_instruct
   audio_processor: ${audio_tower}
   mtp_num_hidden_layers: 4
-  mtp_loss_depth_weights:
-  - 0.3
-  - 0.25
-  - 0.25
-  - 0.2
+  mtp_loss_depth_weights: [0.30, 0.25, 0.25, 0.20]
   mtp_init_extra_layers_from_first: true
   mtp_loss_weight: 0.1
   mtp_distillation_weight: 0.0
@@ -45,10 +51,10 @@ training_args:
   ds_config:
     optimizer:
       params:
-        lr: 4.0e-05
+        lr: 4.0e-5
     scheduler:
       params:
-        warmup_max_lr: 4.0e-05
+        warmup_max_lr: 4.0e-5
     train_micro_batch_size_per_gpu: 1
     train_batch_size: 512
   max_steps: 4000

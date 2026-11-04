@@ -1,4 +1,4 @@
-output_dir: ${oc.env:SPEECH_OUTPUT_ROOT}
+output_dir: /modelblob/projects/product-train-p3-20260911/amlt-results/qwen35-9b-22l-mlp-encproj-full-4k
 model:
   customized_params_conf:
     FREEZE_PATTERNS:
