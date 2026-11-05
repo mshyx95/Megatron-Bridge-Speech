@@ -1,0 +1,33 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Include after h200.yaml (or vc02.yaml) and ELIFT/paths.yaml.
+.train_env: &elift_train_env
+  NODES: 4
+  OUTPUT_ROOT: *elift_output_root
+  DATA_STREAMING_COMPRESSION: recipe
+  PRETRAINED_CHECKPOINT: none
+
+.train_job: &elift_train_job
+  <<: *elift_job
+  name: elift-${RUN_NAME}-native
+  command:
+    - set -e -o xtrace
+    - nvidia-smi
+    - export PYTHONPATH=$$(pwd)/src:$$(pwd)/3rdparty/Megatron-LM
+    - export PYTHONUNBUFFERED=1 CUDA_DEVICE_MAX_CONNECTIONS=1 NCCL_P2P_LEVEL=NVL
+    - export TORCH_NCCL_BLOCKING_WAIT_TIMEOUT=1800 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    # Amulet interpolates once; prefixed INIT_CHECKPOINT values expand in the shell.
+    - export OUTPUT_ROOT="${OUTPUT_ROOT}"
+    - export SPEECH_TOKENIZER_PATH="${BASE_MODEL_ROOT}/${BASE_MODEL_NAME}/"
+    - >-
+      uv run --no-project --python "$$(command -v python)" python
+      examples/models/speech_cascades/launch_elift_stage.py
+      --train-config-yaml "${TRAIN_CONFIG}"
+      --data-config-yaml "${DATA_CONFIG}" --data-recipe "${DATA_RECIPE}" --data-hindi "${DATA_HINDI}"
+      --data-streaming-compression "${DATA_STREAMING_COMPRESSION}"
+      --base-hf "${BASE_MODEL_ROOT}/${BASE_MODEL_NAME}/" --encoder-name "${ENCODER_NAME}"
+      --encoder-checkpoint "${ENCODER_DIR}/model.checkpoint" --encoder-num-blocks "${ENCODER_NUM_BLOCKS}"
+      --mean-file "${NORMALIZATION_DIR}/mean.vec" --invstd-file "${NORMALIZATION_DIR}/Invstd.vec"
+      --output-dir "${OUTPUT_ROOT}/${RUN_NAME}" --name "${RUN_NAME}"
+      --init-checkpoint "${INIT_CHECKPOINT}" --pretrained-checkpoint "${PRETRAINED_CHECKPOINT}"

@@ -104,6 +104,80 @@ def test_two_rank_kd_matches_full_vocabulary_loss_and_gradients(tmp_path):
     mp.spawn(_parallel_kl_worker, args=(f"file://{tmp_path}/init",), nprocs=2, join=True)
 
 
+def _monitoring_ce_worker(rank, rendezvous):
+    from megatron.core.tensor_parallel import gather_from_sequence_parallel_region
+
+    dist.init_process_group("gloo", init_method=rendezvous, rank=rank, world_size=2, timeout=timedelta(seconds=90))
+    try:
+        for batch_size in (1, 2, 4):
+            torch.manual_seed(89)
+            weight = torch.randn(14, 8)
+            hidden = torch.randn(8, batch_size, 8)
+            local = hidden.chunk(2)[rank].clone().requires_grad_()
+            local_weight = weight.chunk(2)[rank]
+            labels = torch.randint(0, 14, (batch_size, 8))
+            seen = []
+
+            def project(states, **kwargs):
+                assert not torch.is_grad_enabled()
+                seen.append(tuple(states.shape))
+                gathered = gather_from_sequence_parallel_region(
+                    states, tensor_parallel_output_grad=False, group=dist.group.WORLD
+                )
+                return F.linear(gathered, local_weight), None
+
+            def loss(targets, logits):
+                shards = [torch.empty_like(logits) for _ in range(2)]
+                dist.all_gather(shards, logits.contiguous())
+                full_logits = torch.cat(shards, dim=-1).transpose(0, 1)
+                return F.cross_entropy(full_logits.reshape(-1, 14), targets.reshape(-1), reduction="none").reshape_as(
+                    targets
+                )
+
+            holder = {}
+            with (
+                patch("torch.cuda.current_device", return_value=torch.device("cpu")),
+                patch("megatron.bridge.models.speech_cascades.model._MONITORING_CE_LOCAL_CHUNK_SIZE", 3),
+            ):
+                output = SpeechCascadesModel._capture_hidden_states(
+                    holder,
+                    sequence_parallel=True,
+                    tp_group=dist.group.WORLD,
+                    sequence_length=7,
+                    ce_requires_grad=False,
+                )(
+                    hidden_states=local,
+                    output_layer=project,
+                    output_weight=None,
+                    labels=labels,
+                    runtime_gather_output=False,
+                    compute_language_model_loss=loss,
+                    scale_logits=lambda logits: logits * 0.75,
+                )
+                expected = F.cross_entropy(
+                    (F.linear(hidden, weight) * 0.75).transpose(0, 1).reshape(-1, 14),
+                    labels.reshape(-1),
+                    reduction="none",
+                ).reshape_as(labels)[:, :7]
+                torch.testing.assert_close(output, expected)
+                assert output.is_contiguous()
+                torch.testing.assert_close(output.view(-1), expected.reshape(-1))
+                assert not output.requires_grad
+                assert seen == [(3, 1, 8), (1, 1, 8)] * batch_size
+                torch.testing.assert_close(holder["hidden_states"], hidden[:7])
+                holder["hidden_states"].square().sum().backward()
+                expected_grad = 2 * hidden
+                expected_grad[7:] = 0
+                torch.testing.assert_close(local.grad, expected_grad.chunk(2)[rank])
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.unit
+def test_two_rank_monitoring_ce_preserves_sequence_parallel_rows_and_hidden_gradients(tmp_path):
+    mp.spawn(_monitoring_ce_worker, args=(f"file://{tmp_path}/init",), nprocs=2, join=True)
+
+
 def _speech_batch_worker(rank, rendezvous):
     dist.init_process_group("gloo", init_method=rendezvous, rank=rank, world_size=2, timeout=timedelta(seconds=30))
     try:

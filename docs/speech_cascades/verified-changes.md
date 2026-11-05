@@ -29,6 +29,28 @@ convergence or performance gains.
 The storage override changes runtime copies of native entries, not published
 data specifications or sampling weights.
 
+### Physical micro-batches and context length
+
+The streaming dataset already concatenates utterances into individual
+token-budgeted rows. `micro_batch_size` now controls how many of those rows the
+external loader collates per forward, rather than only changing the gradient
+accumulation schedule. Both speech recipes pass it to the loader; configurations
+that change it afterward must keep `dataset.micro_batch_size` and
+`train.micro_batch_size` equal. A final incomplete multi-row batch is dropped so
+physical rows and consumed-sample accounting stay consistent. The default of one
+row per forward is unchanged. Multi-row loader batching requires
+`samples_to_sequence`; an already batched `samples_to_batch` stream is rejected
+rather than multiplying physical rows again.
+
+The model's `seq_length` is not a streaming-data budget override. A larger model
+capacity alone leaves the data YAML's `seq_len` and `batcher_batch_size`
+unchanged. Set those explicitly, or use `--streaming-token-budget`, when changing
+the data budget. The native Qwen conversation reader also has a 32,000-token
+single-example prefilter; increasing a pack budget does not remove that filter.
+Concatenation into one long causal row is not isolated THD sequence packing.
+No 64K full-model training or larger-micro-batch throughput acceptance is claimed
+by the configuration and collation checks.
+
 ## Tensor parallel speech and distillation
 
 Only the TP source rank opens the streaming iterator. The forward step broadcasts
@@ -45,6 +67,24 @@ full-vocabulary loss/gradient semantics without a second SP token gather. Frozen
 KD routers do not add a separate auxiliary training objective. Speech MTP with SP
 is explicitly unsupported.
 
+For pure KL (`distillation_weight >= 1`), the student still computes and reports
+the same CE values, but does not retain the monitoring-only CE backward graph.
+Captured student hidden states remain differentiable for KL and MTP. Mixed
+CE+KL, ordinary ASR and inference retain their existing gradient behavior. When
+the physical micro-batch has multiple rows or a row exceeds 1,024 rank-local
+positions, monitoring-only CE projects and scores
+one row in chunks of at most 1,024 rank-local positions. It retains native
+sequence-parallel gathers and logit scaling, reorders labels and losses for the
+gather's rank-major chunk layout, and releases logits before the next projection.
+This avoids both whole-micro-batch and whole-sequence vocabulary tensors on this
+path. Trimmed CE outputs are contiguous so multiple rows with SP tail padding
+remain compatible with the native masked-loss flattening. Short single-row CE
+keeps its existing projection; long single-row CE is also bounded to avoid
+full-vocabulary allocations at 64K. The student and teacher
+backbone forwards still run with the configured physical micro-batch; this is
+not gradient accumulation disguised as larger batching. These checks alone do
+not establish a measured memory or throughput improvement.
+
 Audio attention maps remain enabled by default for compatibility. Set the model
 provider's `retain_audio_attention_maps=False` to release the encoder's diagnostic
 attention references after each forward; output and gradient behavior is tested.
@@ -53,6 +93,23 @@ No measured memory or throughput improvement is claimed.
 Fine-tuning also exposes `--overlap-grad-reduce` / `--no-overlap-grad-reduce`.
 `--exit-interval` requests a save/exit boundary without shortening `train_iters`
 or its learning-rate schedule; nonpositive values are rejected.
+
+## Qwen4Exp QSA indexer
+
+The eager QSA path pools causal key blocks once per sample and scores queries
+in bounded batches. Its FP32 error bound uses the absolute dot products rather
+than a maximum-key bound, avoiding unnecessarily conservative per-query repairs.
+Uncertain top-k boundaries are still repaired with the original GEMM geometry.
+Repair reductions, top-k and mask updates are batched; exact boundary ties keep
+the native one-row top-k rule. Partial blocks, padding and query-dependent masks
+retain their original visibility semantics.
+
+The indexer returns the same nondifferentiable exclusion mask and does not
+change the token budget, routing, loss, batch size or checkpoint parameters.
+This path needs no CUDA graphs or new dependency. Mask/score parity and batched
+selection are covered by
+[`test_qsa_batch.py`](../../tests/unit_tests/models/qwen4_exp/test_qsa_batch.py).
+These checks do not establish production-scale throughput or convergence.
 
 ## Export trained checkpoints
 
@@ -70,7 +127,7 @@ checkpoint export, and refuses nonempty output directories or overwriting the HF
 source. `--vllm` requires a trained checkpoint. Runtime metadata preserves the
 audio configuration and disables MTP metadata when no MTP tensors were exported.
 
-The portable export wrappers under `projects/cluster/` take explicit source,
+The portable export wrappers under `projects/ELIFT/eval/` take explicit source,
 checkpoint and output inputs. Export receipts bind source metadata, profile,
 iteration, tokenizer and shard hashes. Interrupted exports and existing results
 are retained; reuse requires matching receipts.

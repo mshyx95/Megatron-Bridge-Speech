@@ -1,0 +1,86 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Edit the inputs below, then: amlt run amulet/ELIFT/eval/eval.yaml
+# Normally change only RUN_NAME, CHECKPOINT_ITER and EVAL_SUITE below.
+# Default: native OpenASR evaluation of B2 step4000.
+# H200 and VC02 mount different accounts: copy initial_hf + the checkpoint to
+# VC02 first, or change the include below to ../../templates/h200.yaml to read
+# the training storage directly. Matching mount paths do not synchronize files.
+requires:
+  - !include ../../templates/vc02.yaml
+  - !include ../paths.yaml
+
+description: ELIFT shared native evaluation selected by run, checkpoint step and suite
+
+env_defaults:
+  <<: *elift_env
+  NODES: 1
+  # b2 | p4 | p4-hindi-2k | p5 | new-tier1-hindi-2k-e1r
+  RUN_NAME: b2
+  CHECKPOINT_ITER: 4000
+  EVAL_SUITE: openasr # openasr | bbh | voicebench
+
+  # Shared prefixes: change ../paths.yaml once, or override a root here.
+  OUTPUT_ROOT: *elift_output_root
+  EVAL_DATA_ROOT: *elift_evaluation_root
+  VOICEBENCH_ROOT: *elift_voicebench_root
+
+  # Derived paths normally need no edits, including when switching to P5/27B.
+  MODEL_HF: ${OUTPUT_ROOT}/${RUN_NAME}/initial_hf
+  CHECKPOINT_DIR: ${OUTPUT_ROOT}/${RUN_NAME}/${RUN_NAME}/checkpoints
+  TOKENIZER: ${MODEL_HF} # The prepared HF includes its matching tokenizer files.
+  RESULT_DIR: ${OUTPUT_ROOT}/${RUN_NAME}/eval_output/${EVAL_SUITE}_iter${CHECKPOINT_ITER}
+
+  # EVAL_SUITE selects its data and token budget automatically.
+  OPENASR_DATA_DIR: ${EVAL_DATA_ROOT}/OpenASR/esb-datasets-test-only-sorted
+  BBH_MANIFEST: ${EVAL_DATA_ROOT}/BigBenchAudio/manifest.jsonl
+  VOICEBENCH_MANIFEST: ${VOICEBENCH_ROOT}/voicebench.jsonl
+  AUDIO_ROOT: ""
+  OPENASR_MAX_NEW_TOKENS: 128
+  QA_MAX_NEW_TOKENS: 2048
+
+  # VoiceBench only: 0 = generation only; official scoring/judging requires opt-in.
+  RUN_EVAL: 0
+  RUN_JUDGE: 0
+  # BBH judges only when Azure OpenAI endpoint/credentials are supplied as secrets.
+  # Never put credentials here.
+
+<<: *elift_config
+
+jobs:
+  - <<: *elift_job
+    name: elift-${RUN_NAME}-${EVAL_SUITE}-iter${CHECKPOINT_ITER}
+    command:
+      - set -e -o xtrace
+      - nvidia-smi
+      # Amulet substitutes once; export prefixes before expanding derived paths.
+      - export OUTPUT_ROOT="${OUTPUT_ROOT}" RUN_NAME="${RUN_NAME}" EVAL_SUITE="${EVAL_SUITE}" CHECKPOINT_ITER="${CHECKPOINT_ITER}"
+      - export EVAL_DATA_ROOT="${EVAL_DATA_ROOT}" VOICEBENCH_ROOT="${VOICEBENCH_ROOT}"
+      - export MODEL_HF="${MODEL_HF}" CHECKPOINT_DIR="${CHECKPOINT_DIR}" RESULT_DIR="${RESULT_DIR}"
+      - export TOKENIZER="${TOKENIZER}" AUDIO_ROOT="${AUDIO_ROOT}"
+      - export RUN_EVAL="${RUN_EVAL}" RUN_JUDGE="${RUN_JUDGE}"
+      - |
+        if ! [[ "$$CHECKPOINT_ITER" =~ ^[0-9]+$$ ]]; then
+          echo "CHECKPOINT_ITER must be a nonnegative decimal integer" >&2
+          exit 2
+        fi
+        step=$$((10#$$CHECKPOINT_ITER))
+        MODEL_CKPT=$$(printf '%s/iter_%07d' "$$CHECKPOINT_DIR" "$$step")
+        export MODEL_CKPT
+        case "$$EVAL_SUITE" in
+          openasr)
+            export DATA_DIR="${OPENASR_DATA_DIR}" MAX_NEW_TOKENS="${OPENASR_MAX_NEW_TOKENS}"
+            ;;
+          bbh)
+            export MANIFEST="${BBH_MANIFEST}" MAX_NEW_TOKENS="${QA_MAX_NEW_TOKENS}"
+            ;;
+          voicebench)
+            export MANIFEST="${VOICEBENCH_MANIFEST}" MAX_NEW_TOKENS="${QA_MAX_NEW_TOKENS}"
+            ;;
+          *)
+            echo "Unsupported EVAL_SUITE: $$EVAL_SUITE (choose openasr, bbh or voicebench)" >&2
+            exit 2
+            ;;
+        esac
+        bash "projects/ELIFT/eval/run_speech_cascades_$${EVAL_SUITE}.sh"

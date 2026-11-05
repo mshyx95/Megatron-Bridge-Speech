@@ -1,0 +1,32 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# amlt run amulet/ELIFT/train/new-hindi-2k.yaml
+# Fresh Qwen3.5-9B + S1-2605 encoder + random MLP, not a P4 continuation.
+# New inhouse: English 5k / other Tier1 2k, plus independent Hindi 2k.
+requires:
+  - !include ../../templates/h200.yaml
+  - !include ../paths.yaml
+  - !include ../../templates/elift-train.yaml
+
+description: ELIFT new inhouse 2k and Hindi 2k projector-only training
+
+env_defaults:
+  <<: [*elift_train_env, *elift_env]
+  RUN_NAME: new-tier1-hindi-2k-e1r
+  TRAIN_CONFIG: projects/ELIFT/train/new-tier1-hindi-2k-e1r.yaml
+  DATA_CONFIG: projects/ELIFT/data/mixture.yaml
+  DATA_RECIPE: new-2k
+  DATA_HINDI: 2k
+  BASE_MODEL_ROOT: *elift_qwen35_model_root
+  BASE_MODEL_NAME: Qwen3.5-9B
+  ENCODER_NAME: s1-2605-23l
+  ENCODER_DIR: *elift_s1_encoder_dir
+  NORMALIZATION_DIR: *elift_s1_normalization_dir
+  ENCODER_NUM_BLOCKS: 23
+  INIT_CHECKPOINT: none
+
+<<: *elift_config
+
+jobs:
+  - <<: *elift_train_job

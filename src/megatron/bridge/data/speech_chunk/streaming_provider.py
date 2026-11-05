@@ -16,9 +16,9 @@
 
 Mirrors the baseline ``pretrain_speech.py`` integration: it loads the OmegaConf data config,
 builds the weighted streaming ``blob_chunk_alm`` dataset and its dynamic ALM collator, and returns a
-ready ``DataLoader`` iterator through the ``external`` dataloader path. The collator does dynamic
-(frame-budget) batching, so the loader uses ``batch_size=1`` and each ``next`` yields one packed
-micro-batch with the schema the speech-cascades forward step consumes. With TP enabled, only the
+ready ``DataLoader`` iterator through the ``external`` dataloader path. Each dataset item already
+concatenates utterances into a token-budgeted row. The loader groups ``micro_batch_size`` such rows
+with the schema the speech-cascades forward step consumes. With TP enabled, only the
 TP source rank opens the streaming data; the forward step broadcasts its dynamic batch to peers.
 """
 
@@ -45,6 +45,7 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
         data_spec_override: Optional list of ``dataset_spec`` JSON paths restricting the first entry.
         token_budget_override: Optional value for each entry's ``seq_len`` / ``batcher_batch_size``
             (shrinks utterances per packed batch for memory-limited runs).
+        micro_batch_size: Number of dataset rows per forward; must match the training configuration.
         timeout: Maximum seconds to wait for a worker batch; zero preserves unbounded waiting.
             A positive timeout requires ``num_workers > 0``.
     """
@@ -55,6 +56,7 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
     use_storage_api: bool | None = None
     data_spec_override: list[str] | None = None
     token_budget_override: int | None = None
+    micro_batch_size: int = 1
     dataloader_type: str = "external"
     num_workers: int = 1
     prefetch_factor: int = 8
@@ -63,6 +65,8 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
     _extra: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def build_datasets(self, context: DatasetBuildContext) -> tuple[Any, None, None]:
+        if self.micro_batch_size <= 0:
+            raise ValueError("Streaming micro_batch_size must be positive")
         if self.timeout < 0 or (self.num_workers == 0 and self.timeout != 0):
             raise ValueError("Dataloader timeout must be nonnegative and requires worker processes")
         if self.use_storage_api is not None and not isinstance(self.use_storage_api, bool):
@@ -106,6 +110,11 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
                 {**dict(e), "seq_len": self.token_budget_override, "batcher_batch_size": self.token_budget_override}
                 for e in entries
             ]
+        if self.micro_batch_size > 1 and any(
+            entry.get("transform_cls", {}).get("batch_format", "samples_to_sequence") != "samples_to_sequence"
+            for entry in entries
+        ):
+            raise ValueError("Streaming micro_batch_size > 1 requires samples_to_sequence dataset rows")
         if self.use_storage_api is not None:
             entries = [{**dict(entry), "use_storage_api": self.use_storage_api} for entry in entries]
         LOGGER.info(
@@ -126,7 +135,8 @@ class SpeechChunkStreamingDatasetProvider(DatasetProvider):
         # Deep prefetch hides the Azure-download / shuffle-buffer warmup that otherwise shows as
         # intermittent GPU-idle stalls tapering over the first ~1-2k steps.
         loader_kwargs: dict[str, Any] = {
-            "batch_size": 1,
+            "batch_size": self.micro_batch_size,
+            "drop_last": self.micro_batch_size > 1,
             "collate_fn": collator,
             "num_workers": self.num_workers,
             "pin_memory": getattr(self, "pin_memory", False),

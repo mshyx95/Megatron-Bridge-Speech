@@ -13,3 +13,4 @@ dist/
 nemo_experiments/
 *.safetensors
 *.pt
+amulet/ELIFT/.speech-*.local.yaml

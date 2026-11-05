@@ -3171,6 +3171,27 @@ class TestEvalBatchSizeConfig:
         finally:
             restore_get_world_size_safe(og_ws, cfg_mod)
 
+    @pytest.mark.parametrize("dataset_micro_batch_size,train_micro_batch_size", [(1, 2), (2, 1)])
+    def test_speech_streaming_micro_batch_size_must_match_training(
+        self, dataset_micro_batch_size, train_micro_batch_size
+    ):
+        from megatron.bridge.data.speech_chunk.streaming_provider import SpeechChunkStreamingDatasetProvider
+
+        dataset_cfg = SpeechChunkStreamingDatasetProvider(
+            seq_length=512, speech_config_yaml="/unused.yaml", micro_batch_size=dataset_micro_batch_size
+        )
+        container, og_ws, cfg_mod = create_test_config_container(
+            world_size_override=1,
+            model_config=create_test_gpt_config(),
+            train_config=create_test_training_config(global_batch_size=8, micro_batch_size=train_micro_batch_size),
+            dataset_config_override=dataset_cfg,
+        )
+        try:
+            with pytest.raises(ValueError, match="must match train.micro_batch_size"):
+                container.validate()
+        finally:
+            restore_get_world_size_safe(og_ws, cfg_mod)
+
     def test_energon_micro_batch_size_must_match_train_and_validation(self, monkeypatch):
         """Energon external loaders use one physical micro-batch size for both splits."""
         dataset_cfg = create_test_energon_dataset_config(sequence_length=512, micro_batch_size=2)

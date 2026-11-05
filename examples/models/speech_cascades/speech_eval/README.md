@@ -14,6 +14,55 @@ The portable suite dispatcher starts serving automatically after explicit model,
 dataset and output inputs are supplied. Standard decoding is the supported
 evaluation path; speculative decoding needs independent GPU qualification.
 
+## Qwen4Exp Speech: Standard Decoding
+
+`../export_qwen4_audio.py` supports **projector-only, non-MTP** Qwen4Exp
+speech checkpoints. It verifies the frozen backbone configuration/index hashes,
+the saved training configuration and the exact training data manifest before
+loading the checkpoint's audio encoder/projector tensors. The frozen language
+shards are referenced by symlinks, so their source must remain available.
+This is not an exporter for checkpoints with an updated language backbone.
+
+```bash
+python examples/models/speech_cascades/export_qwen4_audio.py \
+  --base-hf "$BASE_HF" --checkpoint "$CHECKPOINT" \
+  --data-config "$TRAINING_DATA_CONFIG" --output "$FRESH_EXPORT" \
+  --base-config-sha256 "$BASE_CONFIG_SHA256" \
+  --base-index-sha256 "$BASE_INDEX_SHA256"
+```
+
+An optional `--audio-file` and `--audio-receipt` pair reuses a staged extraction,
+checking its file hash, source DCP metadata hash and every tensor's name, shape
+and dtype. Never substitute a different step's audio weights.
+
+The serving image must already provide the native
+`vllm.models.qwen4_exp.Qwen4ExpForCausalLM` implementation and the existing
+Cascades audio dependencies. Set `SPEECH_RUNTIME_MODEL=qwen4_audio` and prepend
+`speech_eval/runtime/overlay` plus its containing speech-cascades example
+directory to `PYTHONPATH` when launching vLLM. The adapter retains native
+QSA/GDN/PLE handling, EOS-valued audio IDs and the training manifest's streaming
+truncation. Its split-processing hook extracts audio features directly, without
+loading the original vision processor or requiring image preprocessing assets.
+Prompt replacements use tokenizer-generated token IDs for the native runtime.
+Do not pass speculative/MTP arguments; the adapter rejects a
+speculative configuration. Exported MTP layer counts are zero.
+
+For large models, start one explicitly sized TP server and supply its URL to
+`../run_vllm_eval.sh` through `SPEECH_BASE_URL`, rather than the TP1-per-rank
+layout below. Set `MODEL`, `TOKENIZER`, `SERVED_MODEL_NAME`, dataset/output paths
+and `MTP_SPECULATIVE=false` explicitly. CPU export regressions and runtime
+adapter tests do not establish full-model GPU startup or benchmark scores.
+
+On native runtimes that reject request-supplied chat templates by default,
+the evaluator's exact-prompt delivery requires `--trust-request-chat-template`.
+Enable it only on a dedicated trusted evaluation server bound to loopback;
+do not enable arbitrary client templates on a shared public endpoint. HTTP
+failures retain a bounded server response to diagnose rejected requests.
+The serving interpreter also needs the native runtime's `av` and `soundfile`
+audio extras; having these only in the evaluator's Python environment is not
+sufficient. Verify the actual base64-audio chat request path before loading a
+large model: direct-array processor tests do not exercise HTTP audio decoding.
+
 ## Job Layout
 
 Each cluster job runs one suite with `mpi: true` and

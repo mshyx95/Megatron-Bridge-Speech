@@ -16,16 +16,14 @@
 
 The golden signature was captured from the read-only Megatron-LM baseline encoder; a
 byte-for-byte port must reproduce it bit-identically. See
-docs/speech_cascades/execution_plan.md (gate P3).
+docs/speech_cascades/execution-plan.md (gate P3).
 """
 
 import pytest
 
 
 torch = pytest.importorskip("torch")
-ConformerEncoder = pytest.importorskip(
-    "megatron.bridge.models.speech_cascades.encoder"
-).ConformerEncoder
+ConformerEncoder = pytest.importorskip("megatron.bridge.models.speech_cascades.encoder").ConformerEncoder
 
 
 # Small stand-in for the production encoder that exercises the same code path as the

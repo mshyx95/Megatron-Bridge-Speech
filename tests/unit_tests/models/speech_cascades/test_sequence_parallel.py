@@ -326,18 +326,19 @@ def _build_model(sequence_parallel):
 @pytest.mark.parametrize("length", [6, 7])
 @pytest.mark.parametrize("with_audio", [False, True])
 @pytest.mark.parametrize("with_labels", [False, True])
-def test_audio_is_merged_before_sp_and_padding_is_removed(length, with_audio, with_labels):
+@pytest.mark.parametrize("batch_size", [1, 2, 4])
+def test_audio_is_merged_before_sp_and_padding_is_removed(length, with_audio, with_labels, batch_size):
     torch.manual_seed(17)
     reference = _build_model(False)
     actual = _build_model(True)
     actual.load_state_dict(reference.state_dict())
-    inputs = torch.arange(length).unsqueeze(0)
+    inputs = torch.arange(length).unsqueeze(0).repeat(batch_size, 1)
     kwargs = {}
     if with_audio:
         inputs[:, 1:3] = -1
         kwargs = {
-            "audio_input_features": torch.randn(1, 2, 4),
-            "audio_embed_sizes": torch.tensor([2]),
+            "audio_input_features": torch.randn(batch_size, 2, 4),
+            "audio_embed_sizes": torch.full((batch_size,), 2),
         }
     labels = inputs.clamp_min(0) if with_labels else None
     expected = reference(inputs, labels=labels, **kwargs)
@@ -345,13 +346,15 @@ def test_audio_is_merged_before_sp_and_padding_is_removed(length, with_audio, wi
         "megatron.core.tensor_parallel.scatter_to_sequence_parallel_region", side_effect=lambda tensor, **kw: tensor
     ) as scatter:
         output = actual(inputs, labels=labels, **kwargs)
-    assert output.shape[:2] == (1, length)
+    assert output.shape[:2] == (batch_size, length)
     assert scatter.call_count == (2 if length % 2 else 1)
     assert scatter.call_args_list[0].args[0].shape[0] % 2 == 0
     if length % 2:
         mask = actual.language_model.last_padding_mask
-        assert mask.shape == (1, length + 1)
+        assert mask.shape == (batch_size, length + 1)
         assert mask[:, -1].all() and not mask[:, :-1].any()
+        assert output.is_contiguous()
+        torch.testing.assert_close(output.view(-1), expected.reshape(-1))
     torch.testing.assert_close(output, expected)
     expected.sum().backward()
     output.sum().backward()

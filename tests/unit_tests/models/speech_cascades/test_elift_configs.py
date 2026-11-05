@@ -12,9 +12,21 @@ from omegaconf import OmegaConf
 
 
 ROOT = Path(__file__).resolve().parents[4]
-CONFIGS = ROOT / "projects/cluster/elift/v0.1"
+CONFIGS = ROOT / "projects/ELIFT"
 CLI_PATH = ROOT / "examples/models/speech_cascades/finetune.py"
 CATALOG = yaml.safe_load((CONFIGS / "catalog.yaml").read_text())
+LAUNCH = yaml.safe_load((CONFIGS / "launch.yaml").read_text())
+
+
+@pytest.fixture(scope="module")
+def data_tool():
+    path = ROOT / "examples/models/speech_cascades/prepare_elift_data.py"
+    spec = importlib.util.spec_from_file_location("elift_config_data_test", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _load_cli():
@@ -106,12 +118,20 @@ def test_stage_training_profiles_preserve_source_contract(name, monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.parametrize("name", list(CATALOG["stages"]))
-def test_standalone_data_keeps_all_source_slots_and_teacher_transforms(name):
+def test_standalone_data_keeps_all_source_slots_and_teacher_transforms(name, data_tool):
     stage = CATALOG["stages"][name]
     source = OmegaConf.merge(
         OmegaConf.load(CONFIGS / stage["base_reference"]), OmegaConf.load(CONFIGS / stage["reference"])
     )
-    data = OmegaConf.load(CONFIGS / stage["data_config"])
+    data = OmegaConf.create(
+        data_tool.build_data_config(
+            CONFIGS / "data",
+            recipe=stage["data_recipe"],
+            tokenizer=LAUNCH["base_models"][stage["language_model"]],
+            hindi=stage.get("data_hindi"),
+            streaming_compression=stage.get("data_streaming_compression"),
+        )
+    )
     assert len(data.dataset) == len(source.dataset) == 17
     for original, migrated in zip(source.dataset, data.dataset):
         for field in ("dataset_spec", "filter_options", "weight", "seq_len", "batcher_batch_size", "dataset_provider"):
@@ -136,11 +156,13 @@ def test_standalone_data_keeps_all_source_slots_and_teacher_transforms(name):
 
 @pytest.mark.unit
 def test_data_configs_use_literal_paths_without_environment_variables():
-    for path in (CONFIGS / "data").glob("*.yaml"):
+    for path in (CONFIGS / "data/mixture.yaml", CONFIGS / "data/sources.yaml"):
         content = path.read_text()
         assert "${oc.env:" not in content and "SPEECH_" not in content, path
-        for entry in yaml.safe_load(content)["dataset"]:
-            assert all(spec.startswith("/datablob") for spec in entry["dataset_spec"]), path
+    mixture = yaml.safe_load((CONFIGS / "data/mixture.yaml").read_text())
+    assert mixture["tokenizer"]["pretrained_model_name_or_path"] == "???"
+    for entry in mixture["dataset"]:
+        assert all(spec.startswith("/datablob") for spec in entry["dataset_spec"])
     for path in CONFIGS.rglob("*.yaml"):
         content = path.read_text()
         assert not any(token in content for token in ("blob.core.windows.net", "WANDB_RUN_ID", "workspace_name")), path

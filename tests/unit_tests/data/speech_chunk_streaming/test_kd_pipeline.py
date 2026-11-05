@@ -279,6 +279,138 @@ def test_streaming_provider_forwards_kd_to_transform(monkeypatch, tmp_path, kd_e
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("micro_batch_size", [1, 2, 4])
+@pytest.mark.parametrize("token_budget", [None, 65536])
+def test_streaming_loader_collates_physical_rows_audio_and_teacher(
+    monkeypatch, tmp_path, micro_batch_size, token_budget
+):
+    from omegaconf import OmegaConf
+    from transformers import AutoTokenizer
+
+    import megatron.bridge.data.speech_chunk_streaming as streaming
+    from megatron.bridge.data.speech_chunk.streaming_provider import SpeechChunkStreamingDatasetProvider
+
+    records = []
+    for index in range(9):
+        segments = index % 2 + 1
+        ids = torch.tensor([10 + index] + [-1] * (2 * segments) + [30 + index, 31 + index])
+        teacher_ids = torch.tensor([10 + index, 20] + [21] * (index % 3) + [30 + index, 31 + index])
+        labels = torch.full_like(ids, -100)
+        labels[-2:] = ids[-2:]
+        teacher_labels = torch.full_like(teacher_ids, -100)
+        teacher_labels[-2:] = teacher_ids[-2:]
+        records.append(
+            {
+                "input_ids": ids,
+                "labels": labels,
+                "teacher_input_ids": teacher_ids,
+                "teacher_labels": teacher_labels,
+                "teacher_attention_mask": torch.ones_like(teacher_ids, dtype=torch.bool),
+                "input_embeds": [
+                    torch.full((3 + index + segment, 80), float(10 * index + segment)) for segment in range(segments)
+                ],
+                "is_text_sample": False,
+                "audio_embed_sizes": torch.full((segments,), 2),
+                "audio_frames": torch.arange(3 + index, 3 + index + segments),
+            }
+        )
+
+    class Rows(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            return iter(deepcopy(records))
+
+    entries_seen = []
+
+    def build(entries, **kwargs):
+        entries_seen.extend(entries)
+        return Rows()
+
+    path = tmp_path / "data.yaml"
+    OmegaConf.save(
+        {
+            "dataset": [
+                {
+                    "seq_len": 8192,
+                    "batcher_batch_size": 8192,
+                    "tokenizer": {"pretrained_model_name_or_path": "/unused"},
+                    "transform_cls": {
+                        "name": "AudioTextConversationTransform",
+                        "batch_format": "samples_to_sequence",
+                    },
+                }
+            ],
+            "dataset_collator": {"knowledge_distillation": True},
+        },
+        path,
+    )
+    original_config = path.read_bytes()
+    monkeypatch.setattr(streaming, "build_speech_chunk_dataset", build)
+    monkeypatch.setattr(streaming, "build_speech_chunk_collator", lambda *args: collator())
+    monkeypatch.setattr(AutoTokenizer, "from_pretrained", lambda *args, **kwargs: CharacterTokenizer())
+    monkeypatch.setattr(
+        SpeechChunkStreamingDatasetProvider, "_data_parallel_rank_and_size", staticmethod(lambda _: (0, 1))
+    )
+    provider = SpeechChunkStreamingDatasetProvider(
+        seq_length=65536,
+        speech_config_yaml=str(path),
+        micro_batch_size=micro_batch_size,
+        token_budget_override=token_budget,
+        num_workers=0,
+    )
+    train, _, _ = provider.build_datasets(SimpleNamespace(pg_collection=None))
+    batches = list(train)
+    assert len(batches) == len(records) // micro_batch_size
+    for batch_index, batch in enumerate(batches):
+        expected = records[batch_index * micro_batch_size : (batch_index + 1) * micro_batch_size]
+        assert batch["input_ids"].shape[0] == micro_batch_size
+        assert batch["teacher_input_ids"].shape[0] == micro_batch_size
+        for row, record in enumerate(expected):
+            length = len(record["input_ids"])
+            teacher_length = len(record["teacher_input_ids"])
+            assert torch.equal(batch["input_ids"][row, :length], record["input_ids"])
+            assert torch.equal(batch["labels"][row, :length], record["labels"])
+            assert torch.all(batch["input_ids"][row, length:] == 0)
+            assert torch.all(batch["labels"][row, length:] == -100)
+            assert torch.equal(batch["teacher_input_ids"][row, :teacher_length], record["teacher_input_ids"])
+            assert torch.equal(batch["teacher_labels"][row, :teacher_length], record["teacher_labels"])
+            assert torch.all(batch["teacher_input_ids"][row, teacher_length:] == 0)
+            assert torch.all(batch["teacher_labels"][row, teacher_length:] == -100)
+            assert batch["teacher_attention_mask"][row].sum() == teacher_length
+        assert torch.equal(batch["audio_embed_sizes"], torch.cat([record["audio_embed_sizes"] for record in expected]))
+        assert torch.equal(batch["audio_frames"], torch.cat([record["audio_frames"] for record in expected]))
+        audio = [feature for record in expected for feature in record["input_embeds"]]
+        assert batch["inputs_embeds"].shape[0] == len(audio)
+        for segment, features in enumerate(audio):
+            frames = features.shape[0]
+            assert torch.equal(batch["inputs_embeds"][segment, :frames], features)
+            assert batch["audio_attention_mask"][segment].sum() == frames
+    assert entries_seen[0]["seq_len"] == (token_budget or 8192)
+    assert entries_seen[0]["batcher_batch_size"] == (token_budget or 8192)
+    assert path.read_bytes() == original_config
+
+
+@pytest.mark.unit
+def test_streaming_multirow_batch_rejects_already_batched_dataset(monkeypatch, tmp_path):
+    from omegaconf import OmegaConf
+
+    from megatron.bridge.data.speech_chunk.streaming_provider import SpeechChunkStreamingDatasetProvider
+
+    path = tmp_path / "data.yaml"
+    OmegaConf.save(
+        {
+            "dataset": [{"transform_cls": {"batch_format": "samples_to_batch"}}],
+            "dataset_collator": {},
+        },
+        path,
+    )
+    provider = SpeechChunkStreamingDatasetProvider(
+        seq_length=8192, speech_config_yaml=str(path), micro_batch_size=2, num_workers=0
+    )
+    with pytest.raises(ValueError, match="requires samples_to_sequence"):
+        provider.build_datasets(SimpleNamespace(pg_collection=None))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("formatter", ["asr", "ast-cot", "audio-response", "audio-continuation"])
 def test_raw_annotation_to_teacher_batch(formatter):
     dataset = object.__new__(BlobChunkALMDataset)

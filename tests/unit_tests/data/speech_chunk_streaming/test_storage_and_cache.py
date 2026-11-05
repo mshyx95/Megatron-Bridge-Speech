@@ -398,9 +398,10 @@ def streaming_provider():
 
 @pytest.mark.unit
 @pytest.mark.parametrize("workers", [0, 2])
+@pytest.mark.parametrize("micro_batch_size", [1, 2, 4])
 @pytest.mark.parametrize("storage_override,expected_storage", [(None, False), (True, True), (False, False)])
 def test_external_loader_forwards_storage_and_dp_rank_with_valid_worker_options(
-    streaming_provider, monkeypatch, caplog, workers, storage_override, expected_storage
+    streaming_provider, monkeypatch, caplog, workers, micro_batch_size, storage_override, expected_storage
 ):
     entry = {
         "tokenizer": {"pretrained_model_name_or_path": "local/tokenizer"},
@@ -465,6 +466,7 @@ def test_external_loader_forwards_storage_and_dp_rank_with_valid_worker_options(
         num_workers=workers,
         prefetch_factor=8,
         use_storage_api=storage_override,
+        micro_batch_size=micro_batch_size,
     )
     with caplog.at_level(logging.INFO):
         iterator, validation, test = provider.build_datasets(context)
@@ -476,13 +478,24 @@ def test_external_loader_forwards_storage_and_dp_rank_with_valid_worker_options(
     ]
     assert cfg["dataset"][0]["use_storage_api"] is False
     assert f"enabled_entries={int(expected_storage)}/1" in caplog.text
-    assert kwargs["batch_size"] == 1
+    assert kwargs["batch_size"] == micro_batch_size
+    assert kwargs["drop_last"] is (micro_batch_size > 1)
     assert kwargs["collate_fn"] is collator
     assert kwargs["pin_memory"] is True
     if workers:
         assert kwargs["prefetch_factor"] == 8 and kwargs["persistent_workers"] is True
     else:
         assert "prefetch_factor" not in kwargs and "persistent_workers" not in kwargs
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("micro_batch_size", [0, -1])
+def test_streaming_micro_batch_size_must_be_positive(streaming_provider, micro_batch_size):
+    provider = streaming_provider(
+        seq_length=8192, speech_config_yaml="must-not-open.yaml", micro_batch_size=micro_batch_size
+    )
+    with pytest.raises(ValueError, match="micro_batch_size must be positive"):
+        provider.build_datasets(SimpleNamespace())
 
 
 @pytest.mark.unit
@@ -556,6 +569,8 @@ def test_both_speech_recipes_forward_optional_transport_override():
         assert len(calls) == 1
         forwarded = {argument.arg: argument.value for argument in calls[0].keywords}
         assert isinstance(forwarded[keyword], ast.Name) and forwarded[keyword].id == "streaming_use_storage_api"
+        assert isinstance(forwarded["micro_batch_size"], ast.Name)
+        assert forwarded["micro_batch_size"].id == "micro_batch_size"
 
 
 @pytest.mark.unit

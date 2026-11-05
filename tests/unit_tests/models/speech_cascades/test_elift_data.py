@@ -1,14 +1,21 @@
+import hashlib
 import importlib.util
 import json
+import shutil
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
+from omegaconf import OmegaConf
 
 
 ROOT = Path(__file__).resolve().parents[4]
+CONFIGS = ROOT / "projects/ELIFT"
+CATALOG = yaml.safe_load((CONFIGS / "catalog.yaml").read_text())
+LAUNCH = yaml.safe_load((CONFIGS / "launch.yaml").read_text())
 
 
 @pytest.fixture
@@ -55,6 +62,161 @@ def _config(tmp_path):
             {"dataset_spec": [str(spec)], "weight": 1.0},
         ]
     }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "stage,digest",
+    [
+        # Semantic hashes of the eight standalone snapshots before consolidation, not credentials.
+        ("b1", "67b48f373fe3ffcc308fd73de1deff0dfb3dddec931a15f645704f1f6abf347c"),  # pragma: allowlist secret
+        ("b2", "440db3ef61e4c869f9d4b6b0b31e8f198cff909c177d4358d64dc13abde26c51"),  # pragma: allowlist secret
+        ("b3", "6bd174423c8a7026fbcaa1df9af5a9139436d6af7a24fd9d9072e09361dd4382"),  # pragma: allowlist secret
+        (
+            "e1r-hindi-2k",
+            "99ec8359ef87d83e14d1a05331b5f117b716f613bd9898fc2d571a063aed54c7",  # pragma: allowlist secret
+        ),
+        ("e1r-2609", "1652200a77fd2c2c5ca813e5c6aa2d4052561e001d129717d6cab6b2a93e425f"),  # pragma: allowlist secret
+        (
+            "e1r-2609-hindi-2k",
+            "77ad31904767c74c50ed91c7adf7b99fdaa82bf9f2a095c8241f791cc02b2a9e",  # pragma: allowlist secret
+        ),
+        (
+            "new-tier1-hindi-2k-e1r",
+            "cd1659b8d4f38cb15a20dad949c7946b0439058608a5e19232fe395d578c440c",  # pragma: allowlist secret
+        ),
+        (
+            "new-tier1-hindi-5k-e1r-8k",
+            "4c2bae374bc171f3735d5f4a5b26791ada8e6f5048ce82beadabc419b0aa7b6a",  # pragma: allowlist secret
+        ),
+    ],
+)
+def test_composed_configs_match_every_historical_snapshot(tool, stage, digest):
+    profile = CATALOG["stages"][stage]
+    config = tool.build_data_config(
+        CONFIGS / "data",
+        recipe=profile["data_recipe"],
+        tokenizer=LAUNCH["base_models"][profile["language_model"]],
+        hindi=profile.get("data_hindi"),
+        streaming_compression=profile.get("data_streaming_compression"),
+    )
+    resolved = OmegaConf.to_container(OmegaConf.create(config), resolve=True)
+    assert hashlib.sha256(json.dumps(resolved, sort_keys=True).encode()).hexdigest() == digest
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("recipe", ["base", "new-2k", "new-5k"])
+@pytest.mark.parametrize("hindi", ["2k", "5k"])
+def test_hindi_is_an_independent_addition_in_all_three_tasks(tool, recipe, hindi):
+    kwargs = {"recipe": recipe, "tokenizer": "/fixture/tokenizer"}
+    original = tool.build_data_config(CONFIGS / "data", **kwargs)
+    added = tool.build_data_config(CONFIGS / "data", hindi=hindi, **kwargs)
+    hindi_sources = yaml.safe_load((CONFIGS / "data/sources.yaml").read_text())["hindi"][hindi]
+    for task, slots in tool.INHOUSE_SLOTS.items():
+        index = slots["multilingual"]
+        expected = [*original["dataset"][index]["dataset_spec"], hindi_sources[task]]
+        assert added["dataset"][index]["dataset_spec"] == expected
+        added["dataset"][index]["dataset_spec"].pop()
+    assert added == original
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("recipe,english", [("new-2k", "5k"), ("new-5k", "10k")])
+def test_new_data_replaces_only_inhouse_and_keeps_english_tier_mapping(tool, recipe, english):
+    base = tool.build_data_config(CONFIGS / "data", recipe="base", tokenizer="/fixture/tokenizer")
+    new = tool.build_data_config(CONFIGS / "data", recipe=recipe, tokenizer="/fixture/tokenizer")
+    for slots in tool.INHOUSE_SLOTS.values():
+        assert (
+            new["dataset"][slots["english"]]["dataset_spec"][-1]
+            == base["dataset"][slots["english"]]["dataset_spec"][-1]
+        )
+        assert len(new["dataset"][slots["multilingual"]]["dataset_spec"]) == 8
+    assert new["dataset"][0]["dataset_spec"][0].endswith(f"asr_chunk_tier1_en_{english}.json")
+    inhouse_slots = {index for slots in tool.INHOUSE_SLOTS.values() for index in slots.values()}
+    for index, (old, replacement) in enumerate(zip(base["dataset"], new["dataset"])):
+        replacement.pop("path_prefix_in_orange")
+        if index in inhouse_slots:
+            replacement["dataset_spec"] = old["dataset_spec"]
+        assert replacement == old
+    assert [entry["weight"] for entry in new["dataset"]] == [1.0] * 17
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "overrides,message",
+    [
+        ({"recipe": "new-10k"}, "Unmapped data recipe"),
+        ({"recipe": "new-20k"}, "Unmapped data recipe"),
+        ({"hindi": "20k"}, "Unmapped Hindi tier"),
+        ({"tokenizer": ""}, "tokenizer is required"),
+        ({"streaming_compression": "false"}, "must be a bool"),
+    ],
+)
+def test_unmapped_sources_and_invalid_model_settings_fail_explicitly(tool, overrides, message):
+    kwargs = {"recipe": "base", "tokenizer": "/fixture/tokenizer", **overrides}
+    with pytest.raises((ValueError, TypeError), match=message):
+        tool.build_data_config(CONFIGS / "data", **kwargs)
+
+
+@pytest.mark.unit
+def test_malformed_mixtures_and_partial_task_replacements_are_rejected(tool, tmp_path):
+    configs = tmp_path / "data"
+    configs.mkdir()
+    for name in ("mixture.yaml", "sources.yaml"):
+        shutil.copyfile(CONFIGS / "data" / name, configs / name)
+    mixture = yaml.safe_load((configs / "mixture.yaml").read_text())
+    mixture["dataset"].pop()
+    (configs / "mixture.yaml").write_text(yaml.safe_dump(mixture))
+    with pytest.raises(ValueError, match="17 sampling slots"):
+        tool.build_data_config(configs, recipe="base", tokenizer="/fixture/tokenizer")
+    shutil.copyfile(CONFIGS / "data/mixture.yaml", configs / "mixture.yaml")
+    sources = yaml.safe_load((configs / "sources.yaml").read_text())
+    del sources["recipes"]["new-2k"]["inhouse"]["continuation"]
+    (configs / "sources.yaml").write_text(yaml.safe_dump(sources))
+    with pytest.raises(ValueError, match="ASR, rewrite and continuation together"):
+        tool.build_data_config(configs, recipe="new-2k", tokenizer="/fixture/tokenizer")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field,value", [("weight", 0.5), ("weight", True), ("formatter", "audio-response")])
+def test_composition_rejects_changed_task_weights_and_reordered_slots(tool, tmp_path, field, value):
+    configs = tmp_path / "data"
+    configs.mkdir()
+    shutil.copyfile(CONFIGS / "data/sources.yaml", configs / "sources.yaml")
+    mixture = yaml.safe_load((CONFIGS / "data/mixture.yaml").read_text())
+    entry = mixture["dataset"][0]
+    if field == "formatter":
+        entry["transform_cls"]["prompt_formatter"] = value
+    else:
+        entry["weight"] = value
+    (configs / "mixture.yaml").write_text(yaml.safe_dump(mixture))
+    with pytest.raises(ValueError):
+        tool.build_data_config(configs, recipe="base", tokenizer="/fixture/tokenizer")
+
+
+@pytest.mark.unit
+def test_config_cli_is_reusable_but_refuses_a_different_tokenizer(tool, tmp_path):
+    output = tmp_path / "data.yaml"
+    command = [
+        sys.executable,
+        str(ROOT / "examples/models/speech_cascades/prepare_elift_data.py"),
+        "config",
+        "--config-root",
+        str(CONFIGS / "data"),
+        "--recipe",
+        "base",
+        "--tokenizer",
+        "/fixture/model-a",
+        "--output",
+        str(output),
+    ]
+    for _ in range(2):
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    command[command.index("--tokenizer") + 1] = "/fixture/model-b"
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    assert "differs; use a fresh output directory" in error.value.stderr
+    assert yaml.safe_load(output.read_text())["tokenizer"]["pretrained_model_name_or_path"] == "/fixture/model-a"
 
 
 @pytest.mark.unit

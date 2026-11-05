@@ -1,0 +1,33 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# amlt run amulet/ELIFT/train/p4.yaml
+# P4: full E1-r step4000 initialization + four physical native MTP layers.
+# REQUIRED: fill INIT_CHECKPOINT with the validated complete native checkpoint.
+# A plain E1-r checkpoint without the four MTP layers is not sufficient.
+requires:
+  - !include ../../templates/h200.yaml
+  - !include ../paths.yaml
+  - !include ../../templates/elift-train.yaml
+
+description: ELIFT P4 E1-r continuation with four native MTP layers
+
+env_defaults:
+  <<: [*elift_train_env, *elift_env]
+  RUN_NAME: p4
+  TRAIN_CONFIG: projects/ELIFT/train/p4.yaml
+  DATA_CONFIG: projects/ELIFT/data/mixture.yaml
+  DATA_RECIPE: base
+  DATA_HINDI: none
+  BASE_MODEL_ROOT: *elift_qwen35_model_root
+  BASE_MODEL_NAME: Qwen3.5-9B
+  ENCODER_NAME: s1-2605-23l
+  ENCODER_DIR: *elift_s1_encoder_dir
+  NORMALIZATION_DIR: *elift_s1_normalization_dir
+  ENCODER_NUM_BLOCKS: 23
+  INIT_CHECKPOINT: none
+
+<<: *elift_config
+
+jobs:
+  - <<: *elift_train_job

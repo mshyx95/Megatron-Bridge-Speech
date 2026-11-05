@@ -1,0 +1,32 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# amlt run amulet/ELIFT/train/b2.yaml
+# B2: clean Qwen3.5-9B + Phi4-MM-24L + random MLP; base data, no Hindi/MTP.
+# Directory anchors are defined once in ../paths.yaml; execution is shared below.
+requires:
+  - !include ../../templates/h200.yaml
+  - !include ../paths.yaml
+  - !include ../../templates/elift-train.yaml
+
+description: ELIFT B2 projector-only training with base ASR/rewrite/continuation data
+
+env_defaults:
+  <<: [*elift_train_env, *elift_env]
+  RUN_NAME: b2
+  TRAIN_CONFIG: projects/ELIFT/train/b2.yaml
+  DATA_CONFIG: projects/ELIFT/data/mixture.yaml
+  DATA_RECIPE: base
+  DATA_HINDI: none
+  BASE_MODEL_ROOT: *elift_qwen35_model_root
+  BASE_MODEL_NAME: Qwen3.5-9B
+  ENCODER_NAME: phi4-mm-24l
+  ENCODER_DIR: *elift_phi4_encoder_dir
+  NORMALIZATION_DIR: *elift_phi4_encoder_dir
+  ENCODER_NUM_BLOCKS: 24
+  INIT_CHECKPOINT: none
+
+<<: *elift_config
+
+jobs:
+  - <<: *elift_train_job

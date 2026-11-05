@@ -1,0 +1,106 @@
+# Verified source mappings; Hindi is independent of the selected inhouse recipe.
+recipes:
+  base:
+    use_storage_api: false
+    inhouse: null
+  new-2k:
+    hours:
+      english: 5000
+      other_languages: 2000
+    use_storage_api: true
+    path_prefix_in_orange: /datablob1
+    inhouse:
+      asr:
+        english:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/en/configs/asr_chunk_tier1_en_5k.json
+        - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
+        multilingual:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/de/configs/asr_chunk_tier1_de_2k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/es/configs/asr_chunk_tier1_es_2k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/fr/configs/asr_chunk_tier1_fr_2k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/it/configs/asr_chunk_tier1_it_2k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/ja/configs/asr_chunk_tier1_ja_2k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/963dfa3f0d6b8b28.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/zh/configs/asr_chunk_tier1_zh_2k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/ko/configs/asr_chunk_tier1_ko_2k.json
+      rewrite:
+        english:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/1dcdf313edc40c26.json
+        - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_earnings.json
+        multilingual:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/b06457c1022a7b17.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/c5d2f1064ead4646.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/fde70ec3572c6625.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/205b94f40e323b06.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/249f5347eafef38c.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/5b45345fa1e4af31.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/f9012c02f4c691df.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/f8f4f3e2a3378372.json
+      continuation:
+        english:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/2c4d3a979c1d4a40.json
+        - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_earnings.json
+        multilingual:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/1a892a9b457e64ae.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/0740419d931bec19.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/feb737d077b6a811.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/f9afb9ef2cb8c419.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/5a362db8dbf9f132.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/96fcb742407545c4.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/5b88fa21dd0ce608.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-2k-e1r-20261013-051903/e4c0bbfa6388376f.json
+  new-5k:
+    hours:
+      english: 10000
+      other_languages: 5000
+    use_storage_api: true
+    path_prefix_in_orange: /datablob1
+    inhouse:
+      asr:
+        english:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/en/configs/asr_chunk_tier1_en_10k.json
+        - /datablob1/users/ruchaofan/DataSpecs/mlang_s2/asr_person_filtered/asr_chunk_earnings.json
+        multilingual:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/de/configs/asr_chunk_tier1_de_5k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/es/configs/asr_chunk_tier1_es_5k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/fr/configs/asr_chunk_tier1_fr_5k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/it/configs/asr_chunk_tier1_it_5k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/ja/configs/asr_chunk_tier1_ja_5k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/fe910f419370af2f9a02.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/zh/configs/asr_chunk_tier1_zh_5k.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/tier1_per_language/ko/configs/asr_chunk_tier1_ko_5k.json
+      rewrite:
+        english:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/12ec3b56632779dab227.json
+        - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_nothink/configs/asr_chunk_earnings.json
+        multilingual:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/79cc7278866698f181a1.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/53f7dbc28e1a5ff7bf04.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/8714621305290697241a.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/bcb925c3602b4941020a.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/df60cde8ed1ffad3c873.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/95acc2ec558b4264d3ce.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/d4fb865ce194045d7c8e.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/a16a09bdc98e7690da30.json
+      continuation:
+        english:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/55ed8299c5874ad3e7bc.json
+        - /datablob1/users/yuxuanhu/data/asr_rewrite/asr_continuation/configs/asr_chunk_earnings.json
+        multilingual:
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/27851dff4ed65578af99.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/991cdca3ca3ca5b31040.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/a4552e4092d8116f0e13.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/fdb85ea99637b5b659c1.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/18929cfbf27892b82911.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/ce7285d4b22c4fd8735f.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/9e38c7d4414382338916.json
+        - /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/training_specs/isolated/new-tier1-hindi-5k-e1r-8ksteps-20261016-202730-qwenfix/specs/b66537d85f04a1f17a63.json
+hindi:
+  2k:
+    asr: /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-2k.json
+    rewrite: /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/asr_nothink/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-2k.json
+    continuation: /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/asr_continuation/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-2k.json
+  5k:
+    asr: /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
+    rewrite: /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/asr_nothink/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json
+    continuation: /datablob1/users/yuxuanhu/data/audio_data/asr_rewrite/ELIFT/v0.1/hindi/asr_continuation/configs/tier2_hi-IN_non_verbatim_lid-990a6ada7e-5k.json

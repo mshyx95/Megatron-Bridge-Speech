@@ -1,0 +1,15 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Shared directory prefixes for all five training entries and eval.yaml.
+# Change a directory here once; consumers use the scalar anchors below.
+# Identical /modelblob paths on H200 and VC02 still refer to different accounts.
+.paths:
+  output_root: &elift_output_root /modelblob/projects/yuxuanhu_s2s_qwen/bridge-results/elift-v0.1
+  qwen35_model_root: &elift_qwen35_model_root /datablob1/users/ruchaofan/Phi-omni-checkpoints/language_ckpt
+  public_model_root: &elift_public_model_root /datablob1/users/yuxuanhu/models/public
+  phi4_encoder_dir: &elift_phi4_encoder_dir /datablob1/users/yuxuanhu/cascades_speech_encoder/phi4_mm_24L_20260825
+  s1_encoder_dir: &elift_s1_encoder_dir /modelblob/projects/qwen-paper-ablation-cde-20260826/artifacts/qwen35-9b-s1-2605-step112000-speech-encoder
+  s1_normalization_dir: &elift_s1_normalization_dir /datablob1/users/ruchaofan/cascades_speech_encoder
+  evaluation_root: &elift_evaluation_root /datablob1/users/ruchaofan/Evaluation
+  voicebench_root: &elift_voicebench_root /datablob1/users/yuxuanhu/eval/voicebench

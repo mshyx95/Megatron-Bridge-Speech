@@ -1,0 +1,46 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+.env_defaults: &elift_env
+  SKU: 80G8-H100-IB-NvLink
+  sla_tier: standard
+  TARGET: aiservices-vc02-eu2
+  IMAGE: megatron-bridge-speech:dev-yuxuanhu-s2s_qwen_dev-636166
+
+.config: &elift_config
+  target:
+    service: sing
+    name: ${TARGET}
+    workspace_name: aiservices-prod-ws02-eus2
+  environment:
+    registry: speechllmregistry.azurecr.io
+    image: ${IMAGE}
+  storage:
+    output:
+      storage_account_name: tsstd01eus2
+      container_name: amulet
+    model_blob:
+      storage_account_name: tsstd01eus2
+      container_name: data
+      mount_dir: /modelblob
+    data_blob:
+      storage_account_name: highperf01eus2
+      container_name: data
+      mount_dir: /datablob1
+  code: &elift_code
+    local_dir: $CONFIG_DIR/../../..
+
+.job: &elift_job
+  name: ${JOB_NAME}
+  sku: ${NODES}x${SKU}
+  sla_tier: ${sla_tier}
+  priority: low
+  mpi: true
+  process_count_per_node: 8
+  submit_args:
+    container_args:
+      SHARED_MEMORY_PERCENT: 0.5
+    env:
+      NCCL_DEBUG: INFO
+      _AZUREML_SINGULARITY_JOB_UAI: aiservices-training-c02-uai-eus2
+  identity: managed

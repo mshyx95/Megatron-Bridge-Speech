@@ -1,6 +1,7 @@
 import ast
 import importlib.abc
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -12,6 +13,7 @@ from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import numpy as np
 import pytest
@@ -792,6 +794,27 @@ def test_official_tokenizer_rules_survive_client_and_server_load(tmp_path):
 
 
 @pytest.mark.unit
+def test_http_failure_preserves_bounded_server_diagnostic(tmp_path, monkeypatch):
+    from speech_eval import speech_api
+
+    body = io.BytesIO(b'{"error":{"message":"--trust-request-chat-template is not set"}}' + b"x" * 5000)
+    error = HTTPError("http://localhost:8000/v1/chat/completions", 400, "Bad Request", {}, body)
+
+    def reject(request, *, timeout):
+        raise error
+
+    monkeypatch.setattr(speech_api, "urlopen", reject)
+    client = speech_api.SpeechAPI("http://localhost:8000/v1", "test", tmp_path / "audit.jsonl")
+    with pytest.raises(RuntimeError, match="Speech API HTTP 400") as raised:
+        client._post({"model": "test"})
+    message = str(raised.value)
+    assert "--trust-request-chat-template is not set" in message
+    assert "no local-model fallback was attempted" in message
+    assert len(message) < 4300
+    assert body.closed
+
+
+@pytest.mark.unit
 def test_http_contract_and_audit(tmp_path):
     from speech_eval.speech_api import SpeechAPI
 
@@ -939,9 +962,9 @@ def test_original_runner_subset_inventory(tmp_path, monkeypatch, suite, count, s
 @pytest.mark.parametrize("suite", ["openasr", "openasr_ml", "openasr_long", "bbh", "voicebench", "bfcl", "fleurs"])
 @pytest.mark.parametrize("batch_size", [2, 8, 32, 64, 128])
 def test_cluster_job_runs_one_suite_with_one_service_per_mpi_rank(tmp_path, suite, batch_size):
-    driver = tmp_path / "projects/cluster/run_speech_cascades_b1_vllm.sh"
+    driver = tmp_path / "projects/ELIFT/eval/run_speech_cascades_b1_vllm.sh"
     driver.parent.mkdir(parents=True)
-    shutil.copyfile(ROOT / "projects/cluster/run_speech_cascades_b1_vllm.sh", driver)
+    shutil.copyfile(ROOT / "projects/ELIFT/eval/run_speech_cascades_b1_vllm.sh", driver)
     wrapper = tmp_path / "examples/models/speech_cascades/run_vllm_eval.sh"
     wrapper.parent.mkdir(parents=True)
     wrapper.write_text(
@@ -996,9 +1019,9 @@ def test_cluster_job_runs_one_suite_with_one_service_per_mpi_rank(tmp_path, suit
 @pytest.mark.unit
 @pytest.mark.parametrize("inherited", ["0", "1"])
 def test_cluster_voicebench_is_generation_only(tmp_path, inherited):
-    driver = tmp_path / "projects/cluster/run_speech_cascades_b1_vllm.sh"
+    driver = tmp_path / "projects/ELIFT/eval/run_speech_cascades_b1_vllm.sh"
     driver.parent.mkdir(parents=True)
-    shutil.copyfile(ROOT / "projects/cluster/run_speech_cascades_b1_vllm.sh", driver)
+    shutil.copyfile(ROOT / "projects/ELIFT/eval/run_speech_cascades_b1_vllm.sh", driver)
     wrapper = tmp_path / "examples/models/speech_cascades/run_vllm_eval.sh"
     wrapper.parent.mkdir(parents=True)
     wrapper.write_text(

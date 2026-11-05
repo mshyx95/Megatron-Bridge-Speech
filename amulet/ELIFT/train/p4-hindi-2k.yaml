@@ -1,0 +1,32 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# amlt run amulet/ELIFT/train/p4-hindi-2k.yaml
+# Continue the completed P4 step4000, preserving all four trained native MTP layers.
+# INIT_CHECKPOINT follows the shared output prefix; override if P4 was saved elsewhere.
+requires:
+  - !include ../../templates/h200.yaml
+  - !include ../paths.yaml
+  - !include ../../templates/elift-train.yaml
+
+description: ELIFT P4 Hindi 2k continuation from the complete P4 checkpoint
+
+env_defaults:
+  <<: [*elift_train_env, *elift_env]
+  RUN_NAME: p4-hindi-2k
+  TRAIN_CONFIG: projects/ELIFT/train/p4-hindi-2k.yaml
+  DATA_CONFIG: projects/ELIFT/data/mixture.yaml
+  DATA_RECIPE: base
+  DATA_HINDI: 2k
+  BASE_MODEL_ROOT: *elift_qwen35_model_root
+  BASE_MODEL_NAME: Qwen3.5-9B
+  ENCODER_NAME: s1-2605-23l
+  ENCODER_DIR: *elift_s1_encoder_dir
+  NORMALIZATION_DIR: *elift_s1_normalization_dir
+  ENCODER_NUM_BLOCKS: 23
+  INIT_CHECKPOINT: ${OUTPUT_ROOT}/p4/p4/checkpoints/iter_0004000
+
+<<: *elift_config
+
+jobs:
+  - <<: *elift_train_job

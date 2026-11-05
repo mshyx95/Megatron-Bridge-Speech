@@ -72,7 +72,11 @@ class SpeechAPI:
             with urlopen(request, timeout=self.timeout) as response:
                 return json.load(response)
         except HTTPError as error:
-            raise RuntimeError(f"Speech API HTTP {error.code}; no local-model fallback was attempted") from None
+            with error:
+                detail = error.read(4096).decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"Speech API HTTP {error.code}; server response: {detail!r}; no local-model fallback was attempted"
+            ) from None
 
     def generate(self, source, audio, sample_rate, audio_id, generation_config, eos_token):
         """Submit audio and its already-rendered prompt without changing token boundaries."""

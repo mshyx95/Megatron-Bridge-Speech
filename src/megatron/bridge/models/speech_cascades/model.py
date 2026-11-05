@@ -29,6 +29,9 @@ from megatron.bridge.models.speech_cascades.audio_embedding import CascadesAudio
 from megatron.bridge.models.speech_cascades.mtp import SpeechCascadesMTP
 
 
+_MONITORING_CE_LOCAL_CHUNK_SIZE = 1024
+
+
 class SpeechCascadesModel(MegatronModule):
     """Qwen3.5 language model with a Cascades audio encoder attached (audio-only, no vision)."""
 
@@ -285,12 +288,10 @@ class SpeechCascadesModel(MegatronModule):
                 **kwargs,
             )
             if padding:
-                return output[:, :original_length]
+                return output[:, :original_length].contiguous()
             return output
 
-        # Capture path: stash the main decoder hidden states (for the KD response selection and/or
-        # the MTP depth heads) while the capture hook reproduces the standard output-layer loss so
-        # the returned CE output is unchanged.
+        # Pure KL still reports CE, but only the captured hidden states need its backward graph.
         holder: dict[str, torch.Tensor] = {}
         output = self.language_model(
             input_ids=self._language_model_input_ids(input_ids),
@@ -304,6 +305,9 @@ class SpeechCascadesModel(MegatronModule):
                 sequence_parallel=self.config.sequence_parallel,
                 tp_group=self.language_model.pg_collection.tp if self.config.sequence_parallel else None,
                 sequence_length=original_length,
+                ce_requires_grad=not (
+                    return_hidden_states and getattr(self.config, "distillation_weight", 0.75) >= 1.0
+                ),
             ),
             **kwargs,
         )
@@ -404,8 +408,9 @@ class SpeechCascadesModel(MegatronModule):
         sequence_parallel: bool = False,
         tp_group: torch.distributed.ProcessGroup | None = None,
         sequence_length: int | None = None,
+        ce_requires_grad: bool = True,
     ):
-        """Output-processor hook: stash the decoder hidden states and reproduce the standard output."""
+        """Capture hidden states and reproduce CE, optionally without a monitoring-only CE graph."""
 
         def _process(
             *,
@@ -424,13 +429,45 @@ class SpeechCascadesModel(MegatronModule):
                 tp_group=tp_group,
                 sequence_length=sequence_length,
             )(hidden_states=hidden_states)
-            logits, _ = output_layer(hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output)
-            logits = scale_logits(logits)
-            if labels is None:
-                output = logits.transpose(0, 1).contiguous()
-            else:
-                output = compute_language_model_loss(labels, logits)
-            return output[:, :sequence_length] if sequence_length is not None else output
+            with torch.set_grad_enabled(torch.is_grad_enabled() and (ce_requires_grad or labels is None)):
+                if (
+                    not ce_requires_grad
+                    and labels is not None
+                    and (labels.size(0) > 1 or hidden_states.size(0) > _MONITORING_CE_LOCAL_CHUNK_SIZE)
+                ):
+                    local_length = hidden_states.size(0)
+                    shards = labels.size(1) // local_length if sequence_parallel else 1
+                    if shards < 1 or labels.size(1) != shards * local_length:
+                        raise ValueError("Monitoring CE labels must match the sequence-parallel hidden-state layout")
+                    losses = []
+                    for row in range(labels.size(0)):
+                        row_labels = labels[row : row + 1].reshape(1, shards, local_length)
+                        row_chunks = []
+                        for start in range(0, local_length, _MONITORING_CE_LOCAL_CHUNK_SIZE):
+                            end = min(start + _MONITORING_CE_LOCAL_CHUNK_SIZE, local_length)
+                            logits, _ = output_layer(
+                                hidden_states[start:end, row : row + 1],
+                                weight=output_weight,
+                                runtime_gather_output=runtime_gather_output,
+                            )
+                            logits = scale_logits(logits)
+                            # SP gathers rank-local chunks in rank order, not original contiguous sequence order.
+                            chunk_labels = row_labels[:, :, start:end].reshape(1, -1)
+                            chunk_loss = compute_language_model_loss(chunk_labels, logits)
+                            del logits
+                            row_chunks.append(chunk_loss.reshape(1, shards, end - start))
+                        losses.append(torch.cat(row_chunks, dim=-1).reshape(1, -1))
+                    output = torch.cat(losses, dim=0)
+                    return output[:, :sequence_length].contiguous() if sequence_length is not None else output
+                logits, _ = output_layer(
+                    hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output
+                )
+                logits = scale_logits(logits)
+                if labels is None:
+                    output = logits.transpose(0, 1).contiguous()
+                else:
+                    output = compute_language_model_loss(labels, logits)
+            return output[:, :sequence_length].contiguous() if sequence_length is not None else output
 
         return _process
 

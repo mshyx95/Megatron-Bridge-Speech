@@ -123,6 +123,23 @@ def test_s2_kd_train_iters_override(monkeypatch):
     assert cfg.train.train_iters == 2
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("micro_batch_size", [1, 2, 4])
+@pytest.mark.parametrize("seq_length", [8192, 65536])
+def test_streaming_recipe_keeps_model_and_loader_batch_contract(monkeypatch, micro_batch_size, seq_length):
+    cfg = _build(
+        monkeypatch,
+        load_hf_weights=True,
+        global_batch_size=64,
+        micro_batch_size=micro_batch_size,
+        seq_length=seq_length,
+        mtp_num_hidden_layers=0,
+    )
+    assert cfg.model.seq_length == cfg.dataset.seq_length == seq_length
+    assert cfg.train.micro_batch_size == cfg.dataset.micro_batch_size == micro_batch_size
+    assert cfg.train.global_batch_size == 64
+
+
 def test_s2_kd_rejects_unknown_phase(monkeypatch):
     with pytest.raises(ValueError):
         _build(monkeypatch, phase="bogus", load_hf_weights=True)
@@ -131,7 +148,7 @@ def test_s2_kd_rejects_unknown_phase(monkeypatch):
 @pytest.mark.unit
 def test_b1_4b_prepared_config_is_projector_only_kl(monkeypatch):
     root = Path(__file__).resolve().parents[4]
-    with (root / "projects/cluster/train_s2tt_b1_4b.yaml").open() as stream:
+    with (root / "projects/ELIFT/train/train_s2tt_b1_4b.yaml").open() as stream:
         settings = yaml.safe_load(stream)
     assert settings["s2_kd"] is True
     assert settings["lora_rank"] is None

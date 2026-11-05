@@ -15,4 +15,4 @@ __pycache__/
 .amltconfig
 **/.amltconfig
 .amlt/
-projects/cluster/.speech-*.local.yaml
+amulet/ELIFT/.speech-*.local.yaml

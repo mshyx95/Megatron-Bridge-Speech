@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Prepare and publish ELIFT nested data configs, without submitting jobs or generating answers.
+"""Compose, prepare and publish ELIFT data configs without submitting jobs or generating answers.
 
 Ports the source sampler's weighted deterministic chunk ordering, Hindi effective-hour filters,
 per-language availability checks and publisher's shared-20k, source-namespaced answer layout.
@@ -46,6 +46,11 @@ LOGGER = logging.getLogger(__name__)
 JSONValue: TypeAlias = "None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]"
 HOURS = (2000, 5000, 10000, 20000)
 LANGUAGES = frozenset({"en", "de", "es", "fr", "it", "ja", "ko", "pt", "zh"})
+INHOUSE_SLOTS = {
+    "asr": {"english": 0, "multilingual": 1},
+    "rewrite": {"english": 7, "multilingual": 8},
+    "continuation": {"english": 12, "multilingual": 13},
+}
 
 
 def _json_value(value: object) -> JSONValue:
@@ -101,6 +106,92 @@ def _write_yaml(path: Path, value: dict[str, JSONValue]) -> None:
 
 def _load_config(path: Path) -> dict[str, JSONValue]:
     return _mapping(_json_value(OmegaConf.to_container(OmegaConf.load(path), resolve=True)))
+
+
+def build_data_config(
+    configs: Path,
+    *,
+    recipe: str,
+    tokenizer: str,
+    hindi: str | None = None,
+    streaming_compression: bool | None = None,
+) -> dict[str, JSONValue]:
+    """Compose the shared mixture with model-independent inhouse and Hindi sources.
+
+    Args:
+        configs: Directory containing ``mixture.yaml`` and ``sources.yaml``.
+        recipe: Verified inhouse recipe from ``sources.yaml``.
+        tokenizer: Model tokenizer path or Hugging Face identifier.
+        hindi: Optional independently selected Hindi tier.
+        streaming_compression: Optional encoder/runtime override, not a data recipe.
+
+    Returns:
+        Standalone streaming config retaining the original sampling slots and weights.
+
+    Raises:
+        ValueError: A recipe or Hindi tier is unmapped, or the mixture contract is invalid.
+        TypeError: A source mapping or runtime override has an invalid type.
+    """
+    if not tokenizer.strip():
+        raise ValueError("A model tokenizer is required")
+    if streaming_compression is not None and not isinstance(streaming_compression, bool):
+        raise TypeError("streaming_compression must be a bool or None")
+    config = _mapping(_json_value(yaml.safe_load((configs / "mixture.yaml").read_text())))
+    sources = _mapping(_json_value(yaml.safe_load((configs / "sources.yaml").read_text())))
+    recipes = _mapping(sources["recipes"])
+    if recipe not in recipes:
+        raise ValueError(f"Unmapped data recipe {recipe!r}; verified recipes: {', '.join(recipes)}")
+    selected = _mapping(recipes[recipe])
+    replacements = None if selected["inhouse"] is None else _mapping(selected["inhouse"])
+    if replacements is not None and set(replacements) != set(INHOUSE_SLOTS):
+        raise ValueError("Inhouse replacements must cover ASR, rewrite and continuation together")
+    hindi_sources = _mapping(sources["hindi"])
+    if hindi is not None and hindi not in hindi_sources:
+        raise ValueError(f"Unmapped Hindi tier {hindi!r}; verified tiers: {', '.join(hindi_sources)}")
+    additions = None if hindi is None else _mapping(hindi_sources[hindi])
+    if additions is not None and set(additions) != set(INHOUSE_SLOTS):
+        raise ValueError("Hindi must cover ASR, rewrite and continuation together")
+    entries = _list(config["dataset"])
+    if len(entries) != 17:
+        raise ValueError("ELIFT mixture must retain its 17 sampling slots")
+    for task, slots in INHOUSE_SLOTS.items():
+        formatter = {"asr": "asr", "rewrite": "audio-response", "continuation": "audio-continuation"}[task]
+        task_sources = None if replacements is None else _mapping(replacements[task])
+        if task_sources is not None and set(task_sources) != set(slots):
+            raise ValueError(f"{task} replacements must cover English and multilingual slots")
+        for language, index in slots.items():
+            entry = _mapping(entries[index])
+            if _mapping(entry["transform_cls"])["prompt_formatter"] != formatter or _number(entry["weight"]) != 1.0:
+                raise ValueError(f"Invalid {task} slot {index}: preserve the original formatter and 1:1:1 weights")
+            if task_sources is not None:
+                specs: list[JSONValue] = [_string(value) for value in _list(task_sources[language])]
+                if not specs:
+                    raise ValueError(f"Empty {task}/{language} inhouse sources")
+                entry["dataset_spec"] = list(specs)
+            if additions is not None and language == "multilingual":
+                _list(entry["dataset_spec"]).append(_string(additions[task]))
+    if not isinstance(selected["use_storage_api"], bool):
+        raise TypeError("Recipe use_storage_api must be a bool")
+    config["use_storage_api"] = selected["use_storage_api"]
+    if "path_prefix_in_orange" in selected:
+        for value in entries:
+            _mapping(value)["path_prefix_in_orange"] = _string(selected["path_prefix_in_orange"])
+    _mapping(config["tokenizer"])["pretrained_model_name_or_path"] = tokenizer
+    if streaming_compression is not None:
+        config["streaming_compression"] = streaming_compression
+    OmegaConf.to_container(OmegaConf.create(config), resolve=True)
+    return config
+
+
+def _write_data_config(path: Path, config: dict[str, JSONValue]) -> None:
+    if path.exists():
+        existing = _mapping(_json_value(yaml.safe_load(path.read_text())))
+        if existing != config:
+            raise ValueError(f"Existing data config {path} differs; use a fresh output directory")
+        LOGGER.info("Reusing verified data config: %s", path)
+        return
+    _write_yaml(path, config)
+    LOGGER.info("Wrote standalone data config: %s", path)
 
 
 def _spec_weights(config: dict[str, JSONValue]) -> dict[str, float]:
@@ -532,6 +623,13 @@ def main() -> None:
     """Dispatch data-only sampling or publication, without training or paid generation."""
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+    composition = subparsers.add_parser("config", help="Render a model-independent recipe as a standalone data YAML")
+    composition.add_argument("--config-root", type=Path, required=True)
+    composition.add_argument("--recipe", required=True)
+    composition.add_argument("--tokenizer", required=True)
+    composition.add_argument("--hindi")
+    composition.add_argument("--streaming-compression", action=argparse.BooleanOptionalAction, default=None)
+    composition.add_argument("--output", type=Path, required=True)
     sample = subparsers.add_parser("sample")
     sample.add_argument("--source-config", type=Path, required=True)
     sample.add_argument("--output-root", type=Path, required=True)
@@ -550,6 +648,18 @@ def main() -> None:
     publication.add_argument("--variant-suffix", default="")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
+    if args.command == "config":
+        _write_data_config(
+            args.output,
+            build_data_config(
+                args.config_root,
+                recipe=args.recipe,
+                tokenizer=args.tokenizer,
+                hindi=args.hindi,
+                streaming_compression=args.streaming_compression,
+            ),
+        )
+        return
     if args.command == "publish":
         publish(
             args.source_root,

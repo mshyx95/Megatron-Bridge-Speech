@@ -123,7 +123,7 @@ def test_compatibility_export_wrapper_reuses_shared_validation(export_files, pro
     output.rename(final)
     check_export(final, action="write", **args)
     result = subprocess.run(
-        ["bash", str(ROOT / f"projects/cluster/run_{profile}_s1_2605_vllm_export.sh")],
+        ["bash", str(ROOT / f"projects/ELIFT/eval/run_{profile}_s1_2605_vllm_export.sh")],
         env={
             **os.environ,
             "SOURCE_HF": str(args["source_hf"]),

@@ -1529,11 +1529,13 @@ class ConfigContainer(Container):
         ):
             self.dataset.validate()
 
-        if isinstance(self.dataset, EnergonDatasetConfig) and (
+        from megatron.bridge.data.speech_chunk.streaming_provider import SpeechChunkStreamingDatasetProvider
+
+        if isinstance(self.dataset, (EnergonDatasetConfig, SpeechChunkStreamingDatasetProvider)) and (
             self.dataset.micro_batch_size != self.train.micro_batch_size
         ):
             raise ValueError(
-                "EnergonDatasetConfig.micro_batch_size must match train.micro_batch_size "
+                f"{type(self.dataset).__name__}.micro_batch_size must match train.micro_batch_size "
                 f"({self.dataset.micro_batch_size} != {self.train.micro_batch_size})."
             )
 

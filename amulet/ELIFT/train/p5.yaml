@@ -1,0 +1,33 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# amlt run amulet/ELIFT/train/p5.yaml
+# P5: full B3 step4000 initialization + four physical native MTP layers.
+# REQUIRED: fill INIT_CHECKPOINT with the validated complete native checkpoint.
+# A plain B3 checkpoint without the four MTP layers is not sufficient.
+requires:
+  - !include ../../templates/h200.yaml
+  - !include ../paths.yaml
+  - !include ../../templates/elift-train.yaml
+
+description: ELIFT P5 Qwen3.8-27B continuation with four native MTP layers
+
+env_defaults:
+  <<: [*elift_train_env, *elift_env]
+  RUN_NAME: p5
+  TRAIN_CONFIG: projects/ELIFT/train/p5.yaml
+  DATA_CONFIG: projects/ELIFT/data/mixture.yaml
+  DATA_RECIPE: base
+  DATA_HINDI: none
+  BASE_MODEL_ROOT: *elift_public_model_root
+  BASE_MODEL_NAME: Qwen3.8-27B
+  ENCODER_NAME: phi4-mm-24l
+  ENCODER_DIR: *elift_phi4_encoder_dir
+  NORMALIZATION_DIR: *elift_phi4_encoder_dir
+  ENCODER_NUM_BLOCKS: 24
+  INIT_CHECKPOINT: none
+
+<<: *elift_config
+
+jobs:
+  - <<: *elift_train_job
